@@ -67,6 +67,7 @@ class _LaunchScreenState extends State<LaunchScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.blue.shade700,
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -132,7 +133,9 @@ class _LaunchScreenState extends State<LaunchScreen>
                         'Loading...',
                         style: TextStyle(color: Colors.white70),
                       ),
-                    ] else ...[
+                    ],
+
+                    if (!_isChecking) ...[
                       // Student Login Button
                       SizedBox(
                         width: double.infinity,

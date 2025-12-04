@@ -171,7 +171,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
         flexibleSpace: Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [Colors.green.shade700, Colors.green.shade900],
+              colors: [Colors.blue.shade700, Colors.blue.shade900],
             ),
           ),
         ),
@@ -255,8 +255,8 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
                               ),
                               const SizedBox(height: 12),
                               _DetailRow(
-                                icon: Icons.phone,
-                                label: 'Phone',
+                                icon: Icons.location_on,
+                                label: 'Place',
                                 value: _studentData!['phoneNumber'] ?? 'N/A',
                               ),
                               const SizedBox(height: 12),
@@ -293,7 +293,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
                               ),
                             ),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.orange,
+                              backgroundColor: Colors.blue,
                               foregroundColor: Colors.white,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),
@@ -343,7 +343,7 @@ class _DetailRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Icon(icon, color: Colors.green.shade700, size: 20),
+        Icon(icon, color: Colors.blue.shade700, size: 20),
         const SizedBox(width: 12),
         Expanded(
           child: Column(

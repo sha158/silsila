@@ -50,7 +50,7 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('Student added successfully'),
-              backgroundColor: Colors.green,
+              backgroundColor: Colors.blue,
             ),
           );
 
@@ -175,20 +175,14 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
                           const SizedBox(height: 16),
                           TextFormField(
                             controller: _phoneController,
-                            keyboardType: TextInputType.phone,
+                            keyboardType: TextInputType.text,
                             decoration: InputDecoration(
-                              labelText: 'Phone Number',
-                              prefixIcon: const Icon(Icons.phone),
+                              labelText: 'Place (Optional)',
+                              prefixIcon: const Icon(Icons.location_on),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
                               ),
                             ),
-                            validator: (value) {
-                              if (value == null || value.trim().isEmpty) {
-                                return 'Please enter phone number';
-                              }
-                              return null;
-                            },
                           ),
                           const SizedBox(height: 16),
                           TextFormField(

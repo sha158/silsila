@@ -44,10 +44,10 @@ class _AddClassScreenState extends State<AddClassScreen> {
 
   void _loadClassData() {
     final data = widget.classData!;
-    _nameController.text = data['name'] ?? '';
-    _teacherController.text = data['teacher'] ?? '';
+    _nameController.text = data['subjectName'] ?? data['name'] ?? '';
+    _teacherController.text = data['teacherName'] ?? data['teacher'] ?? '';
     _passwordController.text = data['password'] ?? '';
-    _scheduleController.text = data['schedule'] ?? '';
+    _scheduleController.text = data['scheduledDate'] ?? data['schedule'] ?? '';
     _locationController.text = data['location'] ?? '';
 
     if (data['startDate'] != null) {
@@ -152,6 +152,7 @@ class _AddClassScreenState extends State<AddClassScreen> {
           widget.classId!,
           {
             'subjectName': _nameController.text.trim(),
+            'teacherName': _teacherController.text.trim(),
             'scheduledDate': _scheduleController.text.trim(),
             'startTime': '', // Not used in this form
             'endTime': '', // Not used in this form
@@ -175,6 +176,7 @@ class _AddClassScreenState extends State<AddClassScreen> {
         final classModel = ClassModel(
           classId: '', // Will be set by Firestore
           subjectName: _nameController.text.trim(),
+          teacherName: _teacherController.text.trim(),
           scheduledDate: _scheduleController.text.trim(),
           startTime: '', // Not used in this form
           endTime: '', // Not used in this form
@@ -228,7 +230,7 @@ class _AddClassScreenState extends State<AddClassScreen> {
         flexibleSpace: Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [Colors.orange.shade700, Colors.orange.shade900],
+              colors: [Colors.blue.shade700, Colors.blue.shade900],
             ),
           ),
         ),
@@ -239,7 +241,7 @@ class _AddClassScreenState extends State<AddClassScreen> {
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              Colors.orange.shade50,
+              Colors.blue.shade50,
               Colors.white,
             ],
           ),
@@ -404,7 +406,7 @@ class _AddClassScreenState extends State<AddClassScreen> {
                     child: ElevatedButton(
                       onPressed: _isLoading ? null : _saveClass,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.orange.shade700,
+                        backgroundColor: Colors.blue.shade700,
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),

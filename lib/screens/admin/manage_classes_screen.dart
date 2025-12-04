@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/firebase_service.dart';
+import '../../models/class_model.dart';
+import '../../widgets/qr_code_display_dialog.dart';
 import 'add_class_screen.dart';
 
 class ManageClassesScreen extends StatefulWidget {
@@ -163,7 +166,7 @@ class _ManageClassesScreenState extends State<ManageClassesScreen>
         flexibleSpace: Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [Colors.orange.shade700, Colors.orange.shade900],
+              colors: [Colors.blue.shade700, Colors.blue.shade900],
             ),
           ),
         ),
@@ -171,6 +174,16 @@ class _ManageClassesScreenState extends State<ManageClassesScreen>
           controller: _tabController,
           indicatorColor: Colors.white,
           indicatorWeight: 3,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          labelStyle: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+          ),
+          unselectedLabelStyle: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.normal,
+          ),
           tabs: const [
             Tab(text: 'Active Classes'),
             Tab(text: 'Past Classes'),
@@ -182,10 +195,7 @@ class _ManageClassesScreenState extends State<ManageClassesScreen>
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              Colors.orange.shade50,
-              Colors.white,
-            ],
+            colors: [Colors.blue.shade50, Colors.white],
           ),
         ),
         child: _isLoading
@@ -200,13 +210,12 @@ class _ManageClassesScreenState extends State<ManageClassesScreen>
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => const AddClassScreen(),
-            ),
-          ).then((_) => _loadClasses());
+          Navigator.of(context)
+              .push(MaterialPageRoute(builder: (_) => const AddClassScreen()))
+              .then((_) => _loadClasses());
         },
-        backgroundColor: Colors.orange.shade700,
+        backgroundColor: Colors.blue.shade700,
+        foregroundColor: Colors.white,
         icon: const Icon(Icons.add),
         label: const Text('Add Class'),
       ),
@@ -219,18 +228,11 @@ class _ManageClassesScreenState extends State<ManageClassesScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.class_outlined,
-              size: 80,
-              color: Colors.grey.shade400,
-            ),
+            Icon(Icons.class_outlined, size: 80, color: Colors.grey.shade400),
             const SizedBox(height: 16),
             Text(
               isActive ? 'No active classes' : 'No past classes',
-              style: TextStyle(
-                fontSize: 18,
-                color: Colors.grey.shade600,
-              ),
+              style: TextStyle(fontSize: 18, color: Colors.grey.shade600),
             ),
           ],
         ),
@@ -252,7 +254,7 @@ class _ManageClassesScreenState extends State<ManageClassesScreen>
             ),
             child: ExpansionTile(
               leading: CircleAvatar(
-                backgroundColor: Colors.orange.shade700,
+                backgroundColor: Colors.blue.shade700,
                 child: const Icon(Icons.class_, color: Colors.white),
               ),
               title: Text(
@@ -266,6 +268,9 @@ class _ManageClassesScreenState extends State<ManageClassesScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const SizedBox(height: 4),
+                  if (classData['teacherName'] != null &&
+                      classData['teacherName'].toString().isNotEmpty)
+                    Text('Teacher: ${classData['teacherName']}'),
                   Text('Schedule: ${classData['scheduledDate'] ?? 'N/A'}'),
                   Text(
                     '${_formatDate(classData['passwordActiveFrom'])} - ${_formatDate(classData['passwordActiveUntil'])}',
@@ -278,6 +283,15 @@ class _ManageClassesScreenState extends State<ManageClassesScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      if (classData['teacherName'] != null &&
+                          classData['teacherName'].toString().isNotEmpty) ...[
+                        _InfoRow(
+                          icon: Icons.person,
+                          label: 'Teacher',
+                          value: classData['teacherName'],
+                        ),
+                        const SizedBox(height: 8),
+                      ],
                       _InfoRow(
                         icon: Icons.lock,
                         label: 'Password',
@@ -287,28 +301,82 @@ class _ManageClassesScreenState extends State<ManageClassesScreen>
                       _InfoRow(
                         icon: Icons.schedule,
                         label: 'Start Time',
-                        value: classData['startTime']?.isNotEmpty == true ? classData['startTime'] : 'Not specified',
+                        value: classData['startTime']?.isNotEmpty == true
+                            ? classData['startTime']
+                            : 'Not specified',
                       ),
                       const SizedBox(height: 8),
                       _InfoRow(
                         icon: Icons.schedule,
                         label: 'End Time',
-                        value: classData['endTime']?.isNotEmpty == true ? classData['endTime'] : 'Not specified',
+                        value: classData['endTime']?.isNotEmpty == true
+                            ? classData['endTime']
+                            : 'Not specified',
                       ),
                       const SizedBox(height: 16),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
+                          // Show QR Code button (only for active classes)
+                          if (isActive) ...[
+                            ElevatedButton.icon(
+                              onPressed: () {
+                                // Convert classData map to ClassModel
+                                final classModel = ClassModel(
+                                  classId: classData['id'],
+                                  subjectName:
+                                      classData['subjectName'] ?? 'Unknown',
+                                  teacherName: classData['teacherName'] ?? '',
+                                  scheduledDate:
+                                      classData['scheduledDate'] ?? '',
+                                  startTime: classData['startTime'] ?? '',
+                                  endTime: classData['endTime'] ?? '',
+                                  password: classData['password'] ?? '',
+                                  passwordActiveFrom:
+                                      (classData['passwordActiveFrom']
+                                              as Timestamp)
+                                          .toDate(),
+                                  passwordActiveUntil:
+                                      (classData['passwordActiveUntil']
+                                              as Timestamp)
+                                          .toDate(),
+                                  isPasswordActive:
+                                      classData['isPasswordActive'] ?? false,
+                                  autoGenerate:
+                                      classData['autoGenerate'] ?? false,
+                                  createdAt:
+                                      (classData['createdAt'] as Timestamp)
+                                          .toDate(),
+                                );
+
+                                showDialog(
+                                  context: context,
+                                  builder: (context) => QRCodeDisplayDialog(
+                                    classModel: classModel,
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.qr_code_2),
+                              label: const Text('QR Code'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green.shade600,
+                                foregroundColor: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                          ],
                           TextButton.icon(
                             onPressed: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => AddClassScreen(
-                                    classId: classData['id'],
-                                    classData: classData,
-                                  ),
-                                ),
-                              ).then((_) => _loadClasses());
+                              Navigator.of(context)
+                                  .push(
+                                    MaterialPageRoute(
+                                      builder: (_) => AddClassScreen(
+                                        classId: classData['id'],
+                                        classData: classData,
+                                      ),
+                                    ),
+                                  )
+                                  .then((_) => _loadClasses());
                             },
                             icon: const Icon(Icons.edit),
                             label: const Text('Edit'),
@@ -375,15 +443,9 @@ class _InfoRow extends StatelessWidget {
       children: [
         Icon(icon, size: 18, color: Colors.grey.shade600),
         const SizedBox(width: 8),
-        Text(
-          '$label: ',
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
+        Text('$label: ', style: const TextStyle(fontWeight: FontWeight.bold)),
         Expanded(
-          child: Text(
-            value,
-            style: TextStyle(color: Colors.grey.shade700),
-          ),
+          child: Text(value, style: TextStyle(color: Colors.grey.shade700)),
         ),
       ],
     );

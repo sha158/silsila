@@ -31,10 +31,7 @@ class AttendanceService {
           .get();
 
       if (!studentDoc.exists) {
-        return AttendanceResult(
-          success: false,
-          message: 'Student not found',
-        );
+        return AttendanceResult(success: false, message: 'Student not found');
       }
 
       final studentData = studentDoc.data() as Map<String, dynamic>;
@@ -50,16 +47,21 @@ class AttendanceService {
       QuerySnapshot activeClasses = await _firestore
           .collection('classes')
           .where('isPasswordActive', isEqualTo: true)
-          .where('passwordActiveUntil', isGreaterThan: Timestamp.fromDate(now))
           .get();
 
       DocumentSnapshot? matchingClass;
       for (var doc in activeClasses.docs) {
         final classData = doc.data() as Map<String, dynamic>;
+
+        // Check if password matches
         if (classData['password'] == enteredPassword) {
-          // Also check if password is active from time
-          final activeFrom = (classData['passwordActiveFrom'] as Timestamp).toDate();
-          if (now.isAfter(activeFrom)) {
+          // Check if password is active from time and not expired
+          final activeFrom = (classData['passwordActiveFrom'] as Timestamp)
+              .toDate();
+          final activeUntil = (classData['passwordActiveUntil'] as Timestamp)
+              .toDate();
+
+          if (now.isAfter(activeFrom) && now.isBefore(activeUntil)) {
             matchingClass = doc;
             break;
           }
@@ -129,5 +131,91 @@ class AttendanceService {
         .where('isPasswordActive', isEqualTo: true)
         .where('passwordActiveUntil', isGreaterThan: Timestamp.fromDate(now))
         .snapshots();
+  }
+
+  // Mark attendance using QR code
+  Future<AttendanceResult> markAttendanceByQR({
+    required String studentId,
+    required String classId,
+  }) async {
+    try {
+      // 1. Get current device info
+      Map<String, String> deviceInfo = await DeviceService.getDeviceInfo();
+
+      // 2. Verify device binding
+      DocumentSnapshot studentDoc = await _firestore
+          .collection('students')
+          .doc(studentId)
+          .get();
+
+      if (!studentDoc.exists) {
+        return AttendanceResult(success: false, message: 'Student not found');
+      }
+
+      final studentData = studentDoc.data() as Map<String, dynamic>;
+      if (studentData['deviceId'] != deviceInfo['deviceId']) {
+        return AttendanceResult(
+          success: false,
+          message: 'Device verification failed',
+        );
+      }
+
+      // 3. Get class details
+      DocumentSnapshot classDoc = await _firestore
+          .collection('classes')
+          .doc(classId)
+          .get();
+
+      if (!classDoc.exists) {
+        return AttendanceResult(success: false, message: 'Class not found');
+      }
+
+      final classData = classDoc.data() as Map<String, dynamic>;
+
+      // 4. Verify class is still active
+      final activeUntil = (classData['passwordActiveUntil'] as Timestamp)
+          .toDate();
+      final now = DateTime.now();
+
+      if (now.isAfter(activeUntil)) {
+        return AttendanceResult(success: false, message: 'QR code has expired');
+      }
+
+      // 5. Check duplicate attendance
+      QuerySnapshot existingAttendance = await _firestore
+          .collection('attendance')
+          .where('classId', isEqualTo: classId)
+          .where('studentId', isEqualTo: studentId)
+          .get();
+
+      if (existingAttendance.docs.isNotEmpty) {
+        return AttendanceResult(
+          success: false,
+          message: 'Attendance already marked for this class',
+        );
+      }
+
+      // 6. Mark attendance
+      await _firestore.collection('attendance').add({
+        'classId': classId,
+        'studentId': studentId,
+        'subjectName': classData['subjectName'],
+        'markedAt': FieldValue.serverTimestamp(),
+        'status': 'present',
+        'deviceId': deviceInfo['deviceId'],
+        'method': 'qr_code', // Track that this was marked via QR
+      });
+
+      return AttendanceResult(
+        success: true,
+        message: 'Attendance marked successfully via QR code!',
+        subjectName: classData['subjectName'],
+      );
+    } catch (e) {
+      return AttendanceResult(
+        success: false,
+        message: 'Error: ${e.toString()}',
+      );
+    }
   }
 }

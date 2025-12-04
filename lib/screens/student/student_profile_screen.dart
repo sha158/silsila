@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import '../../services/auth_service.dart';
 import '../../services/device_service.dart';
 import '../../models/student.dart';
+import '../launch_screen.dart';
+import '../../widgets/premium_logout_dialog.dart';
 
 class StudentProfileScreen extends StatefulWidget {
   const StudentProfileScreen({Key? key}) : super(key: key);
@@ -43,47 +45,22 @@ class _StudentProfileScreenState extends State<StudentProfileScreen>
   }
 
   Future<void> _handleLogout() async {
-    final confirm = await showDialog<bool>(
+    await PremiumLogoutDialog.show(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            Icon(Icons.logout, color: Colors.red[700]),
-            const SizedBox(width: 10),
-            const Text('Logout'),
-          ],
-        ),
-        content: const Text(
+      title: 'Logout',
+      message:
           'Are you sure you want to logout? You will need to login again to access the app.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            child: const Text('Logout'),
-          ),
-        ],
-      ),
+      onConfirm: () async {
+        final authService = Provider.of<AuthService>(context, listen: false);
+        await authService.logout();
+        if (mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (context) => const LaunchScreen()),
+            (route) => false,
+          );
+        }
+      },
     );
-
-    if (confirm == true && mounted) {
-      final authService = Provider.of<AuthService>(context, listen: false);
-      await authService.logout();
-      if (mounted) {
-        Navigator.of(context).popUntil((route) => route.isFirst);
-      }
-    }
   }
 
   @override

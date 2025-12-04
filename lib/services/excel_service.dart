@@ -3,6 +3,8 @@ import 'package:excel/excel.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:file_picker/file_picker.dart';
+import '../models/student.dart';
 
 class ExcelService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -269,6 +271,136 @@ class ExcelService {
       }
     } catch (e) {
       return 'Export failed: ${e.toString()}';
+    }
+  }
+
+  Future<Map<String, dynamic>> importStudentsFromExcel() async {
+    try {
+      // Pick Excel file
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['xlsx', 'xls'],
+      );
+
+      if (result == null) {
+        return {
+          'success': false,
+          'message': 'No file selected',
+        };
+      }
+
+      final filePath = result.files.single.path;
+      if (filePath == null) {
+        return {
+          'success': false,
+          'message': 'Could not read file path',
+        };
+      }
+
+      // Read Excel file
+      final bytes = File(filePath).readAsBytesSync();
+      final excel = Excel.decodeBytes(bytes);
+
+      if (excel.tables.isEmpty) {
+        return {
+          'success': false,
+          'message': 'Excel file is empty',
+        };
+      }
+
+      // Get first sheet
+      final sheetName = excel.tables.keys.first;
+      final sheet = excel.tables[sheetName];
+
+      if (sheet == null || sheet.rows.isEmpty) {
+        return {
+          'success': false,
+          'message': 'Sheet is empty',
+        };
+      }
+
+      // Parse data (skip header row)
+      int successCount = 0;
+      int failCount = 0;
+      List<String> errors = [];
+
+      for (int i = 1; i < sheet.rows.length; i++) {
+        try {
+          final row = sheet.rows[i];
+
+          // Skip empty rows
+          if (row.isEmpty || row.every((cell) => cell == null || cell.value == null)) {
+            continue;
+          }
+
+          // Extract data from columns (StudentID/RollNo, Name, PhoneNumber, Email)
+          final studentId = row.length > 0 && row[0]?.value != null
+              ? row[0]!.value.toString().trim().toUpperCase()
+              : '';
+          final name = row.length > 1 && row[1]?.value != null
+              ? row[1]!.value.toString().trim()
+              : '';
+          final phoneNumber = row.length > 2 && row[2]?.value != null
+              ? row[2]!.value.toString().trim()
+              : '';
+          final email = row.length > 3 && row[3]?.value != null
+              ? row[3]!.value.toString().trim()
+              : '';
+
+          // Validate required fields
+          if (name.isEmpty || studentId.isEmpty) {
+            errors.add('Row ${i + 1}: Missing name or student ID');
+            failCount++;
+            continue;
+          }
+
+          // Create student object
+          final student = Student(
+            studentId: studentId,
+            name: name,
+            phoneNumber: phoneNumber,
+            isActive: true,
+            createdAt: DateTime.now(),
+          );
+
+          // Save to Firestore
+          await _firestore
+              .collection('students')
+              .doc(student.studentId)
+              .set(student.toMap());
+
+          successCount++;
+        } catch (e) {
+          errors.add('Row ${i + 1}: ${e.toString()}');
+          failCount++;
+        }
+      }
+
+      // Build result message
+      String message = 'Import completed!\n';
+      message += 'Successfully added: $successCount students\n';
+      if (failCount > 0) {
+        message += 'Failed: $failCount students\n';
+        if (errors.isNotEmpty) {
+          message += '\nErrors:\n${errors.take(5).join('\n')}';
+          if (errors.length > 5) {
+            message += '\n... and ${errors.length - 5} more errors';
+          }
+        }
+      }
+
+      return {
+        'success': successCount > 0,
+        'message': message,
+        'successCount': successCount,
+        'failCount': failCount,
+        'errors': errors,
+      };
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'Import failed: ${e.toString()}',
+      };
     }
   }
 }

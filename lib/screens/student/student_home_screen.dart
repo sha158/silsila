@@ -6,8 +6,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/auth_service.dart';
 import '../../services/attendance_service.dart';
 import '../../models/class_model.dart';
+import '../launch_screen.dart';
 import 'student_attendance_screen.dart';
 import 'student_profile_screen.dart';
+import '../../widgets/premium_logout_dialog.dart';
+import 'qr_scanner_screen.dart';
 
 class StudentHomeScreen extends StatefulWidget {
   const StudentHomeScreen({Key? key}) : super(key: key);
@@ -33,10 +36,30 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: _pages,
-      ),
+      body: IndexedStack(index: _currentIndex, children: _pages),
+      floatingActionButton: _currentIndex == 0
+          ? FloatingActionButton.extended(
+              onPressed: () async {
+                final result = await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const QRScannerScreen(),
+                  ),
+                );
+                // Optionally refresh the page if attendance was marked
+                if (result == true && mounted) {
+                  setState(() {});
+                }
+              },
+              backgroundColor: Colors.blue.shade700,
+              icon: const Icon(Icons.qr_code_scanner),
+              label: const Text(
+                'Scan QR',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            )
+          : null,
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (index) {
@@ -49,18 +72,12 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> {
         type: BottomNavigationBarType.fixed,
         elevation: 8,
         items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home),
-            label: 'Home',
-          ),
+          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
           BottomNavigationBarItem(
             icon: Icon(Icons.history),
             label: 'My Attendance',
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person),
-            label: 'Profile',
-          ),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
         ],
       ),
     );
@@ -76,6 +93,7 @@ class _HomeTab extends StatefulWidget {
 
 class _HomeTabState extends State<_HomeTab> {
   late ConfettiController _confettiController;
+  String? _studentId;
 
   @override
   void initState() {
@@ -83,6 +101,14 @@ class _HomeTabState extends State<_HomeTab> {
     _confettiController = ConfettiController(
       duration: const Duration(seconds: 3),
     );
+    _loadStudentId();
+  }
+
+  Future<void> _loadStudentId() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _studentId = prefs.getString('studentId');
+    });
   }
 
   @override
@@ -91,104 +117,349 @@ class _HomeTabState extends State<_HomeTab> {
     super.dispose();
   }
 
+  Future<bool> _isAttendanceMarked(String classId) async {
+    if (_studentId == null) return false;
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('attendance')
+          .where('classId', isEqualTo: classId)
+          .where('studentId', isEqualTo: _studentId)
+          .limit(1)
+          .get();
+
+      return snapshot.docs.isNotEmpty;
+    } catch (e) {
+      return false;
+    }
+  }
+
   Future<void> _showMarkAttendanceDialog(ClassModel classModel) async {
     final passwordController = TextEditingController();
     final formKey = GlobalKey<FormState>();
 
-    final result = await showDialog<bool>(
+    final result = await showModalBottomSheet<bool>(
       context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
-        title: Row(
-          children: [
-            Icon(Icons.check_circle, color: Colors.blue[700]),
-            const SizedBox(width: 10),
-            const Expanded(
-              child: Text(
-                'Mark Attendance',
-                style: TextStyle(fontSize: 20),
+      isScrollControlled: true,
+      isDismissible: true,
+      enableDrag: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(28),
+                topRight: Radius.circular(28),
               ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 20,
+                  offset: const Offset(0, -5),
+                ),
+              ],
             ),
-          ],
-        ),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Class: ${classModel.subjectName}',
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
+            child: Form(
+              key: formKey,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Handle bar
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[300],
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Title with icon
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.blue[50],
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            Icons.check_circle,
+                            color: Colors.blue[700],
+                            size: 28,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        const Expanded(
+                          child: Text(
+                            'Mark Attendance',
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Class info card
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.blue[50],
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.blue[100]!, width: 1),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.book,
+                                size: 20,
+                                color: Colors.blue[700],
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  classModel.subjectName,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 18,
+                                    color: Colors.blue[900],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (classModel.teacherName.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.person,
+                                  size: 18,
+                                  color: Colors.grey[600],
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  classModel.teacherName,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.grey[700],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.calendar_today,
+                                size: 18,
+                                color: Colors.grey[600],
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                classModel.scheduledDate,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey[700],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Password field
+                    Text(
+                      'Enter Session Password',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey[700],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextFormField(
+                      controller: passwordController,
+                      decoration: InputDecoration(
+                        hintText: 'Enter the password provided by your teacher',
+                        prefixIcon: Icon(
+                          Icons.lock_outline,
+                          color: Colors.blue[700],
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide(color: Colors.grey[300]!),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide(color: Colors.grey[300]!),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide(
+                            color: Colors.blue[700]!,
+                            width: 2,
+                          ),
+                        ),
+                        filled: true,
+                        fillColor: Colors.grey[50],
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 16,
+                        ),
+                      ),
+                      obscureText: true,
+                      textInputAction: TextInputAction.done,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter the password';
+                        }
+                        return null;
+                      },
+                      onFieldSubmitted: (value) async {
+                        if (!formKey.currentState!.validate()) return;
+
+                        final password = passwordController.text.trim();
+                        if (password != classModel.password) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: const Row(
+                                children: [
+                                  Icon(
+                                    Icons.error_outline,
+                                    color: Colors.white,
+                                  ),
+                                  SizedBox(width: 10),
+                                  Expanded(child: Text('Incorrect password!')),
+                                ],
+                              ),
+                              backgroundColor: Colors.red,
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                          );
+                          return;
+                        }
+
+                        Navigator.pop(context, true);
+                      },
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Action buttons
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(context, false),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.grey[700],
+                              side: BorderSide(color: Colors.grey[300]!),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                            ),
+                            child: const Text(
+                              'Cancel',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          flex: 2,
+                          child: ElevatedButton(
+                            onPressed: () async {
+                              if (!formKey.currentState!.validate()) return;
+
+                              final password = passwordController.text.trim();
+                              if (password != classModel.password) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: const Row(
+                                      children: [
+                                        Icon(
+                                          Icons.error_outline,
+                                          color: Colors.white,
+                                        ),
+                                        SizedBox(width: 10),
+                                        Expanded(
+                                          child: Text('Incorrect password!'),
+                                        ),
+                                      ],
+                                    ),
+                                    backgroundColor: Colors.red,
+                                    behavior: SnackBarBehavior.floating,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                  ),
+                                );
+                                return;
+                              }
+
+                              Navigator.pop(context, true);
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue[700],
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              elevation: 2,
+                            ),
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.check_circle),
+                                SizedBox(width: 8),
+                                Text(
+                                  'Submit',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                  ],
                 ),
               ),
-              const SizedBox(height: 8),
-              Text(
-                'Date: ${classModel.scheduledDate}',
-                style: TextStyle(color: Colors.grey[600]),
-              ),
-              const SizedBox(height: 20),
-              TextFormField(
-                controller: passwordController,
-                decoration: InputDecoration(
-                  labelText: 'Session Password',
-                  hintText: 'Enter the password',
-                  prefixIcon: const Icon(Icons.lock),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  filled: true,
-                  fillColor: Colors.grey[50],
-                ),
-                obscureText: true,
-                textInputAction: TextInputAction.done,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter the password';
-                  }
-                  return null;
-                },
-              ),
-            ],
+            ),
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              if (!formKey.currentState!.validate()) return;
-
-              final password = passwordController.text.trim();
-              if (password != classModel.password) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Incorrect password!'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-                return;
-              }
-
-              Navigator.pop(context, true);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue[700],
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            child: const Text('Submit'),
-          ),
-        ],
       ),
     );
 
@@ -199,7 +470,10 @@ class _HomeTabState extends State<_HomeTab> {
 
   Future<void> _markAttendance(ClassModel classModel) async {
     try {
-      final attendanceService = Provider.of<AttendanceService>(context, listen: false);
+      final attendanceService = Provider.of<AttendanceService>(
+        context,
+        listen: false,
+      );
 
       // Get student ID from SharedPreferences
       final prefs = await SharedPreferences.getInstance();
@@ -236,10 +510,7 @@ class _HomeTabState extends State<_HomeTab> {
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result.message),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text(result.message), backgroundColor: Colors.red),
         );
       }
     } catch (e) {
@@ -269,38 +540,26 @@ class _HomeTabState extends State<_HomeTab> {
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () async {
-              final confirm = await showDialog<bool>(
+              await PremiumLogoutDialog.show(
                 context: context,
-                builder: (context) => AlertDialog(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  title: const Text('Logout'),
-                  content: const Text('Are you sure you want to logout?'),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context, false),
-                      child: const Text('Cancel'),
-                    ),
-                    ElevatedButton(
-                      onPressed: () => Navigator.pop(context, true),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red,
-                        foregroundColor: Colors.white,
+                title: 'Logout',
+                message: 'Are you sure you want to logout?',
+                onConfirm: () async {
+                  final authService = Provider.of<AuthService>(
+                    context,
+                    listen: false,
+                  );
+                  await authService.logout();
+                  if (mounted) {
+                    Navigator.of(context).pushAndRemoveUntil(
+                      MaterialPageRoute(
+                        builder: (context) => const LaunchScreen(),
                       ),
-                      child: const Text('Logout'),
-                    ),
-                  ],
-                ),
+                      (route) => false,
+                    );
+                  }
+                },
               );
-
-              if (confirm == true && mounted) {
-                final authService = Provider.of<AuthService>(context, listen: false);
-                await authService.logout();
-                if (mounted) {
-                  Navigator.of(context).popUntil((route) => route.isFirst);
-                }
-              }
             },
           ),
         ],
@@ -311,7 +570,9 @@ class _HomeTabState extends State<_HomeTab> {
             children: [
               // Header with gradient
               FutureBuilder<String?>(
-                future: SharedPreferences.getInstance().then((prefs) => prefs.getString('studentId')),
+                future: SharedPreferences.getInstance().then(
+                  (prefs) => prefs.getString('studentId'),
+                ),
                 builder: (context, snapshot) {
                   final studentId = snapshot.data ?? 'Student';
                   return Container(
@@ -321,10 +582,7 @@ class _HomeTabState extends State<_HomeTab> {
                       gradient: LinearGradient(
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
-                        colors: [
-                          Colors.blue[700]!,
-                          Colors.blue[900]!,
-                        ],
+                        colors: [Colors.blue[700]!, Colors.blue[900]!],
                       ),
                       borderRadius: const BorderRadius.only(
                         bottomLeft: Radius.circular(30),
@@ -361,7 +619,12 @@ class _HomeTabState extends State<_HomeTab> {
                 child: StreamBuilder<QuerySnapshot>(
                   stream: FirebaseFirestore.instance
                       .collection('classes')
-                      .where('passwordActiveUntil', isGreaterThanOrEqualTo: Timestamp.fromDate(DateTime.now()))
+                      .where(
+                        'passwordActiveUntil',
+                        isGreaterThanOrEqualTo: Timestamp.fromDate(
+                          DateTime.now(),
+                        ),
+                      )
                       .orderBy('passwordActiveUntil', descending: true)
                       .snapshots(),
                   builder: (context, snapshot) {
@@ -399,9 +662,13 @@ class _HomeTabState extends State<_HomeTab> {
                     final now = DateTime.now();
                     final classes = snapshot.data!.docs
                         .map((doc) => ClassModel.fromFirestore(doc))
-                        .where((classModel) =>
-                            classModel.passwordActiveFrom.isBefore(now) ||
-                            classModel.passwordActiveFrom.isAtSameMomentAs(now))
+                        .where(
+                          (classModel) =>
+                              classModel.passwordActiveFrom.isBefore(now) ||
+                              classModel.passwordActiveFrom.isAtSameMomentAs(
+                                now,
+                              ),
+                        )
                         .toList();
 
                     if (classes.isEmpty) {
@@ -446,10 +713,17 @@ class _HomeTabState extends State<_HomeTab> {
                         itemCount: classes.length,
                         itemBuilder: (context, index) {
                           final classModel = classes[index];
-                          return _ClassCard(
-                            classModel: classModel,
-                            onMarkAttendance: () =>
-                                _showMarkAttendanceDialog(classModel),
+                          return FutureBuilder<bool>(
+                            future: _isAttendanceMarked(classModel.classId),
+                            builder: (context, snapshot) {
+                              final isMarked = snapshot.data ?? false;
+                              return _ClassCard(
+                                classModel: classModel,
+                                isAttendanceMarked: isMarked,
+                                onMarkAttendance: () =>
+                                    _showMarkAttendanceDialog(classModel),
+                              );
+                            },
                           );
                         },
                       ),
@@ -488,11 +762,13 @@ class _HomeTabState extends State<_HomeTab> {
 
 class _ClassCard extends StatelessWidget {
   final ClassModel classModel;
+  final bool isAttendanceMarked;
   final VoidCallback onMarkAttendance;
 
   const _ClassCard({
     Key? key,
     required this.classModel,
+    required this.isAttendanceMarked,
     required this.onMarkAttendance,
   }) : super(key: key);
 
@@ -514,19 +790,14 @@ class _ClassCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       elevation: 4,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [
-              Colors.white,
-              Colors.blue[50]!,
-            ],
+            colors: [Colors.white, Colors.blue[50]!],
           ),
         ),
         child: Padding(
@@ -584,6 +855,25 @@ class _ClassCard extends StatelessWidget {
               ),
               const SizedBox(height: 12),
 
+              // Teacher info
+              if (classModel.teacherName.isNotEmpty) ...[
+                Row(
+                  children: [
+                    Icon(Icons.person, size: 18, color: Colors.grey[600]),
+                    const SizedBox(width: 8),
+                    Text(
+                      classModel.teacherName,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey[700],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+              ],
+
               // Date info
               Row(
                 children: [
@@ -591,10 +881,7 @@ class _ClassCard extends StatelessWidget {
                   const SizedBox(width: 8),
                   Text(
                     classModel.scheduledDate,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[700],
-                    ),
+                    style: TextStyle(fontSize: 14, color: Colors.grey[700]),
                   ),
                 ],
               ),
@@ -607,10 +894,7 @@ class _ClassCard extends StatelessWidget {
                   const SizedBox(width: 8),
                   Text(
                     '${classModel.startTime} - ${classModel.endTime}',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[700],
-                    ),
+                    style: TextStyle(fontSize: 14, color: Colors.grey[700]),
                   ),
                 ],
               ),
@@ -638,23 +922,33 @@ class _ClassCard extends StatelessWidget {
                 width: double.infinity,
                 height: 48,
                 child: ElevatedButton(
-                  onPressed: onMarkAttendance,
+                  onPressed: isAttendanceMarked ? null : onMarkAttendance,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue[700],
+                    backgroundColor: isAttendanceMarked
+                        ? Colors.green[600]
+                        : Colors.blue[700],
                     foregroundColor: Colors.white,
+                    disabledBackgroundColor: Colors.green[600],
+                    disabledForegroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
                     elevation: 2,
                   ),
-                  child: const Row(
+                  child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.check_circle),
-                      SizedBox(width: 8),
+                      Icon(
+                        isAttendanceMarked
+                            ? Icons.check_circle
+                            : Icons.check_circle_outline,
+                      ),
+                      const SizedBox(width: 8),
                       Text(
-                        'Mark Attendance',
-                        style: TextStyle(
+                        isAttendanceMarked
+                            ? 'Attendance Marked ✓'
+                            : 'Mark Attendance',
+                        style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
                         ),

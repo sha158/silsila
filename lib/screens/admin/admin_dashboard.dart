@@ -6,7 +6,8 @@ import 'view_attendance_screen.dart';
 import 'settings_screen.dart';
 import '../../services/excel_service.dart';
 import '../../services/auth_service.dart';
-import 'admin_login_screen.dart';
+import '../launch_screen.dart';
+import '../../widgets/premium_logout_dialog.dart';
 
 class AdminDashboard extends StatelessWidget {
   const AdminDashboard({super.key});
@@ -63,44 +64,28 @@ class AdminDashboard extends StatelessWidget {
   }
 
   Future<void> _logout(BuildContext context) async {
-    final confirm = await showDialog<bool>(
+    await PremiumLogoutDialog.show(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Logout'),
-        content: const Text('Are you sure you want to logout?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Logout'),
-          ),
-        ],
-      ),
+      title: 'Logout',
+      message: 'Are you sure you want to logout?',
+      onConfirm: () async {
+        final authService = AuthService();
+        await authService.logout();
+        if (context.mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const LaunchScreen()),
+            (route) => false,
+          );
+        }
+      },
     );
-
-    if (confirm == true && context.mounted) {
-      final authService = AuthService();
-      await authService.logout();
-      if (context.mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const AdminLoginScreen()),
-          (route) => false,
-        );
-      }
-    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: false,
         title: const Text(
           'Admin Dashboard',
           style: TextStyle(fontWeight: FontWeight.bold),
@@ -155,7 +140,7 @@ class AdminDashboard extends StatelessWidget {
                       _DashboardCard(
                         title: 'Add Student',
                         icon: Icons.person_add,
-                        color: Colors.blue,
+                        color: Colors.blue.shade900,
                         onTap: () {
                           Navigator.of(context).push(
                             MaterialPageRoute(
@@ -167,7 +152,7 @@ class AdminDashboard extends StatelessWidget {
                       _DashboardCard(
                         title: 'View Students',
                         icon: Icons.people,
-                        color: Colors.blue,
+                        color: Colors.blue.shade900,
                         onTap: () {
                           Navigator.of(context).push(
                             MaterialPageRoute(
@@ -179,7 +164,7 @@ class AdminDashboard extends StatelessWidget {
                       _DashboardCard(
                         title: 'Manage Classes',
                         icon: Icons.class_,
-                        color: Colors.orange,
+                        color: Colors.blue.shade900,
                         onTap: () {
                           Navigator.of(context).push(
                             MaterialPageRoute(
@@ -191,7 +176,7 @@ class AdminDashboard extends StatelessWidget {
                       _DashboardCard(
                         title: 'View Attendance',
                         icon: Icons.checklist,
-                        color: Colors.purple,
+                        color: Colors.blue.shade900,
                         onTap: () {
                           Navigator.of(context).push(
                             MaterialPageRoute(
@@ -203,13 +188,13 @@ class AdminDashboard extends StatelessWidget {
                       _DashboardCard(
                         title: 'Export Excel',
                         icon: Icons.file_download,
-                        color: Colors.teal,
+                        color: Colors.blue.shade900,
                         onTap: () => _exportToExcel(context),
                       ),
                       _DashboardCard(
                         title: 'Settings',
                         icon: Icons.settings,
-                        color: Colors.blueGrey,
+                        color: Colors.blue.shade900,
                         onTap: () {
                           Navigator.of(context).push(
                             MaterialPageRoute(

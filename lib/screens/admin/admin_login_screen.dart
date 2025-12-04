@@ -199,6 +199,8 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                                           style: TextStyle(
                                             fontSize: 18,
                                             fontWeight: FontWeight.bold,
+                                            color: Colors.white,
+                                            letterSpacing: 0.5,
                                           ),
                                         ),
                                 ),

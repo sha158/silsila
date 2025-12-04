@@ -147,9 +147,9 @@ class _ViewAttendanceScreenState extends State<ViewAttendanceScreen> {
     if (classId == null) return 'Unknown Class';
     final classData = _classes.firstWhere(
       (c) => c['id'] == classId,
-      orElse: () => {'name': 'Unknown Class'},
+      orElse: () => {'subjectName': 'Unknown Class'},
     );
-    return classData['name'] ?? 'Unknown Class';
+    return classData['subjectName'] ?? 'Unknown Class';
   }
 
   @override
@@ -164,7 +164,7 @@ class _ViewAttendanceScreenState extends State<ViewAttendanceScreen> {
         flexibleSpace: Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [Colors.purple.shade700, Colors.purple.shade900],
+              colors: [Colors.blue.shade700, Colors.blue.shade900],
             ),
           ),
         ),
@@ -175,7 +175,7 @@ class _ViewAttendanceScreenState extends State<ViewAttendanceScreen> {
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              Colors.purple.shade50,
+              Colors.blue.shade50,
               Colors.white,
             ],
           ),
@@ -217,7 +217,7 @@ class _ViewAttendanceScreenState extends State<ViewAttendanceScreen> {
                         ),
                         ..._classes.map((c) => DropdownMenuItem(
                               value: c['id'],
-                              child: Text(c['name'] ?? 'Unknown'),
+                              child: Text(c['subjectName'] ?? 'Unknown'),
                             )),
                       ],
                       onChanged: (value) {
@@ -308,7 +308,7 @@ class _ViewAttendanceScreenState extends State<ViewAttendanceScreen> {
                                 child: ListTile(
                                   contentPadding: const EdgeInsets.all(16),
                                   leading: CircleAvatar(
-                                    backgroundColor: Colors.purple.shade700,
+                                    backgroundColor: Colors.blue.shade700,
                                     child: const Icon(
                                       Icons.check,
                                       color: Colors.white,
