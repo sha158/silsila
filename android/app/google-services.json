@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "165876812850",
+    "project_id": "silsilathul-huda",
+    "storage_bucket": "silsilathul-huda.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:165876812850:android:dd9b3341e261e9ef15002b",
+        "android_client_info": {
+          "package_name": "com.example.silsila_dawrah"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCGhccMK_-Aw1S0YD53jj-Lv4PWi5bzlBU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

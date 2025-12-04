@@ -1,0 +1,29 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Admins collection - read only, no writes from client
+    match /admins/{adminId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Students collection - read and write allowed
+    match /students/{studentId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Classes collection - read and write allowed
+    match /classes/{classId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Attendance collection - read and create allowed, no update/delete
+    match /attendance/{attendanceId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if false;
+    }
+  }
+}
