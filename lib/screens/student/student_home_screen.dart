@@ -10,6 +10,7 @@ import '../launch_screen.dart';
 import 'student_attendance_screen.dart';
 import 'student_profile_screen.dart';
 import '../../widgets/premium_logout_dialog.dart';
+import '../../widgets/attendance_success_dialog.dart';
 import 'qr_scanner_screen.dart';
 
 class StudentHomeScreen extends StatefulWidget {
@@ -136,18 +137,25 @@ class _HomeTabState extends State<_HomeTab> {
           name = data?['name'] ?? studentId;
         }
 
-        // Get total classes
+        // Get all classes (this is the source of truth for total)
         final classesSnapshot = await FirebaseFirestore.instance
             .collection('classes')
             .get();
         total = classesSnapshot.docs.length;
 
-        // Get attended classes
+        // Get the set of valid class IDs
+        final validClassIds = classesSnapshot.docs.map((d) => d.id).toSet();
+
+        // Get attended classes - only count those that exist in classes collection
         final attendanceSnapshot = await FirebaseFirestore.instance
             .collection('attendance')
             .where('studentId', isEqualTo: studentId)
             .get();
-        attended = attendanceSnapshot.docs.length;
+
+        // Only count attendance for classes that still exist
+        attended = attendanceSnapshot.docs
+            .where((doc) => validClassIds.contains(doc.data()['classId']))
+            .length;
       }
 
       return {'name': name, 'attended': attended, 'total': total};
@@ -563,24 +571,14 @@ class _HomeTabState extends State<_HomeTab> {
       if (!mounted) return;
 
       if (result.success) {
-        // Play confetti animation
-        _confettiController.play();
-
         // Refresh the UI to show updated attendance status
         setState(() {});
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.check_circle, color: Colors.white),
-                const SizedBox(width: 10),
-                Expanded(child: Text(result.message)),
-              ],
-            ),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 3),
-          ),
+        // Show beautiful animated success dialog
+        await showAttendanceSuccessDialog(
+          context: context,
+          subject: classModel.subjectName,
+          message: result.message,
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -603,6 +601,7 @@ class _HomeTabState extends State<_HomeTab> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: false, // Remove back button
         title: const Text(
           'Active Classes',
           style: TextStyle(fontWeight: FontWeight.bold),
@@ -795,7 +794,8 @@ class _HomeTabState extends State<_HomeTab> {
                               _QuickStat(
                                 icon: Icons.cancel,
                                 label: 'Missed',
-                                value: '${totalClasses - attendedCount}',
+                                value:
+                                    '${(totalClasses - attendedCount).clamp(0, totalClasses)}',
                                 color: Colors.redAccent,
                               ),
                             ],
@@ -856,35 +856,35 @@ class _HomeTabState extends State<_HomeTab> {
                     }
 
                     final now = DateTime.now();
-                    final today = DateTime(now.year, now.month, now.day);
 
                     final classes = snapshot.data!.docs
                         .map((doc) => ClassModel.fromFirestore(doc))
                         .where((classModel) {
-                          // Get date-only versions for comparison
-                          final startDay = DateTime(
-                            classModel.passwordActiveFrom.year,
-                            classModel.passwordActiveFrom.month,
-                            classModel.passwordActiveFrom.day,
+                          // Check if current time is within the active time window
+                          // passwordActiveFrom and passwordActiveUntil include both date AND time
+                          final isActive =
+                              now.isAfter(classModel.passwordActiveFrom) &&
+                              now.isBefore(classModel.passwordActiveUntil);
+
+                          // Also consider exactly at the boundaries
+                          final isAtStart = now.isAtSameMomentAs(
+                            classModel.passwordActiveFrom,
                           );
-                          final endDay = DateTime(
-                            classModel.passwordActiveUntil.year,
-                            classModel.passwordActiveUntil.month,
-                            classModel.passwordActiveUntil.day,
+                          final isAtEnd = now.isAtSameMomentAs(
+                            classModel.passwordActiveUntil,
                           );
 
-                          // Check if today is within the active date range
-                          final isActive =
-                              (today.isAtSameMomentAs(startDay) ||
-                                  today.isAfter(startDay)) &&
-                              (today.isAtSameMomentAs(endDay) ||
-                                  today.isBefore(endDay));
+                          final shouldShow = isActive || isAtStart || isAtEnd;
 
                           print(
-                            'Class: ${classModel.subjectName}, Active: $isActive, StartDay: $startDay, EndDay: $endDay, Today: $today',
+                            'Class: ${classModel.subjectName}, '
+                            'Now: $now, '
+                            'ActiveFrom: ${classModel.passwordActiveFrom}, '
+                            'ActiveUntil: ${classModel.passwordActiveUntil}, '
+                            'IsActive: $shouldShow',
                           );
 
-                          return isActive;
+                          return shouldShow;
                         })
                         .toList();
 

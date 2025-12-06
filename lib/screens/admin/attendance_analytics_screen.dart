@@ -465,13 +465,8 @@ class _AttendanceAnalyticsScreenState extends State<AttendanceAnalyticsScreen> {
 
                           final presentStudentIds =
                               _attendanceByClass[classId] ?? [];
-                          final presentCount = presentStudentIds.length;
-                          final absentCount = totalStudents - presentCount;
-                          final attendancePercentage = totalStudents > 0
-                              ? (presentCount / totalStudents * 100)
-                              : 0.0;
 
-                          // Get present and absent student details
+                          // Get present and absent student details (only from registered students)
                           final presentStudents = _allStudents
                               .where((s) => presentStudentIds.contains(s['id']))
                               .toList();
@@ -480,6 +475,13 @@ class _AttendanceAnalyticsScreenState extends State<AttendanceAnalyticsScreen> {
                                 (s) => !presentStudentIds.contains(s['id']),
                               )
                               .toList();
+
+                          // Calculate counts based on registered students only
+                          final presentCount = presentStudents.length;
+                          final absentCount = absentStudents.length;
+                          final attendancePercentage = totalStudents > 0
+                              ? (presentCount / totalStudents * 100)
+                              : 0.0;
 
                           return Card(
                             margin: const EdgeInsets.only(bottom: 16),

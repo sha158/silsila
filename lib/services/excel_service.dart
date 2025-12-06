@@ -8,6 +8,8 @@ import 'package:universal_html/html.dart' as html;
 import 'package:universal_io/io.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:csv/csv.dart';
+import 'dart:convert';
 
 class ExcelService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -187,10 +189,8 @@ class ExcelService {
         query = query.where('subjectName', isEqualTo: subjectName);
       }
 
-      // Fetch attendance data
-      final attendanceSnapshot = await query
-          .orderBy('markedAt', descending: true)
-          .get();
+      // Fetch attendance data (without orderBy to avoid composite index requirement)
+      final attendanceSnapshot = await query.get();
 
       if (attendanceSnapshot.docs.isEmpty) {
         return 'No attendance records found for the selected filters';
@@ -270,6 +270,18 @@ class ExcelService {
       if (filteredRecords.isEmpty) {
         return 'No attendance records found for the selected filters';
       }
+
+      // Sort filtered records by date (descending - most recent first)
+      filteredRecords.sort((a, b) {
+        try {
+          final aTime = a.data()['markedAt'] as Timestamp?;
+          final bTime = b.data()['markedAt'] as Timestamp?;
+          if (aTime == null || bTime == null) return 0;
+          return bTime.compareTo(aTime); // descending order
+        } catch (e) {
+          return 0;
+        }
+      });
 
       // Create Excel file
       final excel = Excel.createExcel();
@@ -531,32 +543,117 @@ class ExcelService {
 
   Future<Map<String, dynamic>> importStudentsFromExcel() async {
     try {
-      // Pick Excel file
+      // Pick Excel or CSV file - withData: true ensures bytes are loaded (required for web)
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['xlsx', 'xls'],
+        allowedExtensions: ['xlsx', 'csv'],
+        withData: true,
+        allowMultiple: false,
       );
 
       if (result == null) {
         return {'success': false, 'message': 'No file selected'};
       }
 
-      final filePath = result.files.single.path;
-      if (filePath == null) {
-        return {'success': false, 'message': 'Could not read file path'};
+      // Validate file extension
+      final fileName = result.files.single.name.toLowerCase();
+
+      // Check if it's a CSV file
+      if (fileName.endsWith('.csv')) {
+        return await _importFromCSV(result);
       }
 
-      // Read Excel file
+      if (!fileName.endsWith('.xlsx')) {
+        return {
+          'success': false,
+          'message': 'Invalid file format. Please upload an .xlsx or .csv file'
+        };
+      }
+
+      // Read Excel file - on web use bytes, on mobile use path
       Uint8List bytes;
       if (kIsWeb) {
-        bytes = result.files.single.bytes!;
+        // On web, path is not available - must use bytes
+        final fileBytes = result.files.single.bytes;
+        if (fileBytes == null) {
+          return {'success': false, 'message': 'Could not read file data'};
+        }
+        bytes = fileBytes;
       } else {
+        // On mobile/desktop, use file path
+        final filePath = result.files.single.path;
+        if (filePath == null) {
+          return {'success': false, 'message': 'Could not read file path'};
+        }
         bytes = File(filePath).readAsBytesSync();
       }
-      final excel = Excel.decodeBytes(bytes);
+
+      // Try to decode the Excel file
+      Excel? excel;
+      try {
+        // Try decoding with different approaches
+        try {
+          excel = Excel.decodeBytes(bytes);
+        } catch (e1) {
+          // If direct decoding fails, try creating a new Excel object
+          // and loading the bytes differently
+          try {
+            excel = Excel.createExcel();
+            // This is a workaround - the package might need the data in a specific way
+            excel = Excel.decodeBytes(bytes);
+          } catch (e2) {
+            throw Exception('Could not decode Excel file: ${e1.toString()}');
+          }
+        }
+      } catch (decodeError) {
+        // More user-friendly error message
+        String errorMsg = decodeError.toString();
+
+        if (errorMsg.contains('Unsupported operation') ||
+            errorMsg.contains('format unsupported')) {
+          return {
+            'success': false,
+            'message': 'Excel file format issue detected.\n\n'
+                '✅ RECOMMENDED SOLUTION (CSV):\n'
+                '1. Open your Excel file\n'
+                '2. Click "File" → "Save As"\n'
+                '3. Choose "CSV (Comma delimited) (*.csv)"\n'
+                '4. Save and upload the CSV file\n'
+                '   (CSV files work better and are more reliable!)\n\n'
+                'OR\n\n'
+                '📥 Use Our Template:\n'
+                '1. Click the download button (⬇️) above\n'
+                '2. Copy your data to the template\n'
+                '3. Save and upload\n\n'
+                'Technical error: ${errorMsg}'
+          };
+        }
+
+        return {
+          'success': false,
+          'message': 'Failed to read Excel file.\n\n'
+              'Please ensure:\n'
+              '• File is saved as .xlsx (Excel 2007 or newer)\n'
+              '• File is not corrupted\n'
+              '• File is not password-protected\n'
+              '• File was saved properly from Excel/Google Sheets\n\n'
+              'Try downloading our template and copying your data to it.\n\n'
+              'Error: ${errorMsg}'
+        };
+      }
+
+      if (excel == null) {
+        return {
+          'success': false,
+          'message': 'Failed to load Excel file. Please download and use our template.'
+        };
+      }
 
       if (excel.tables.isEmpty) {
-        return {'success': false, 'message': 'Excel file is empty'};
+        return {
+          'success': false,
+          'message': 'Excel file has no sheets. Please use a valid Excel file with data.'
+        };
       }
 
       // Get first sheet
@@ -564,7 +661,19 @@ class ExcelService {
       final sheet = excel.tables[sheetName];
 
       if (sheet == null || sheet.rows.isEmpty) {
-        return {'success': false, 'message': 'Sheet is empty'};
+        return {
+          'success': false,
+          'message': 'The sheet "$sheetName" is empty. Please add student data to the sheet.'
+        };
+      }
+
+      // Check if there's at least a header row and one data row
+      if (sheet.rows.length < 2) {
+        return {
+          'success': false,
+          'message': 'Excel file needs at least a header row and one student row.\n'
+              'Please use our template for the correct format.'
+        };
       }
 
       // Parse data (skip header row)
@@ -706,6 +815,215 @@ class ExcelService {
       return teachers.toList()..sort();
     } catch (e) {
       return [];
+    }
+  }
+
+  // Import students from CSV file (more reliable alternative)
+  Future<Map<String, dynamic>> _importFromCSV(FilePickerResult result) async {
+    try {
+      // Read CSV file
+      Uint8List bytes;
+      if (kIsWeb) {
+        final fileBytes = result.files.single.bytes;
+        if (fileBytes == null) {
+          return {'success': false, 'message': 'Could not read file data'};
+        }
+        bytes = fileBytes;
+      } else {
+        final filePath = result.files.single.path;
+        if (filePath == null) {
+          return {'success': false, 'message': 'Could not read file path'};
+        }
+        bytes = File(filePath).readAsBytesSync();
+      }
+
+      // Convert bytes to string
+      final csvString = utf8.decode(bytes);
+
+      // Parse CSV
+      final List<List<dynamic>> csvData = const CsvToListConverter().convert(
+        csvString,
+        eol: '\n',
+        fieldDelimiter: ',',
+      );
+
+      if (csvData.isEmpty) {
+        return {'success': false, 'message': 'CSV file is empty'};
+      }
+
+      if (csvData.length < 2) {
+        return {
+          'success': false,
+          'message': 'CSV file needs at least a header row and one student row'
+        };
+      }
+
+      // Parse data (skip header row)
+      int successCount = 0;
+      int failCount = 0;
+      List<String> errors = [];
+
+      for (int i = 1; i < csvData.length; i++) {
+        try {
+          final row = csvData[i];
+
+          // Skip empty rows
+          if (row.isEmpty || row.every((cell) => cell == null || cell.toString().trim().isEmpty)) {
+            continue;
+          }
+
+          // Extract data from columns
+          final studentId = row.isNotEmpty && row[0] != null
+              ? row[0].toString().trim().toUpperCase()
+              : '';
+          final name = row.length > 1 && row[1] != null
+              ? row[1].toString().trim()
+              : '';
+          final phoneNumber = row.length > 2 && row[2] != null
+              ? row[2].toString().trim()
+              : '';
+
+          // Validate required fields
+          if (name.isEmpty || studentId.isEmpty) {
+            errors.add('Row ${i + 1}: Missing name or student ID');
+            failCount++;
+            continue;
+          }
+
+          // Create student object
+          final student = Student(
+            studentId: studentId,
+            name: name,
+            phoneNumber: phoneNumber,
+            isActive: true,
+            createdAt: DateTime.now(),
+          );
+
+          // Save to Firestore
+          await _firestore
+              .collection('students')
+              .doc(student.studentId)
+              .set(student.toMap());
+
+          successCount++;
+        } catch (e) {
+          errors.add('Row ${i + 1}: ${e.toString()}');
+          failCount++;
+        }
+      }
+
+      // Build result message
+      String message = 'Import completed!\n';
+      message += 'Successfully added: $successCount students\n';
+      if (failCount > 0) {
+        message += 'Failed: $failCount students\n';
+        if (errors.isNotEmpty) {
+          message += '\nErrors:\n${errors.take(5).join('\n')}';
+          if (errors.length > 5) {
+            message += '\n... and ${errors.length - 5} more errors';
+          }
+        }
+      }
+
+      return {
+        'success': successCount > 0,
+        'message': message,
+        'successCount': successCount,
+        'failCount': failCount,
+        'errors': errors,
+      };
+    } catch (e) {
+      return {'success': false, 'message': 'CSV import failed: ${e.toString()}'};
+    }
+  }
+
+  // Download sample Excel template for student import
+  Future<String> downloadSampleTemplate() async {
+    try {
+      // Create Excel file
+      final excel = Excel.createExcel();
+      final sheet = excel['Students Template'];
+
+      // Add headers
+      final headers = [
+        TextCellValue('Student ID'),
+        TextCellValue('Name'),
+        TextCellValue('Phone Number'),
+      ];
+      sheet.appendRow(headers);
+
+      // Style headers
+      for (int i = 0; i < headers.length; i++) {
+        final cell = sheet.cell(
+          CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0),
+        );
+        cell.cellStyle = CellStyle(
+          bold: true,
+          backgroundColorHex: ExcelColor.blue,
+          fontColorHex: ExcelColor.white,
+        );
+      }
+
+      // Add sample data rows
+      final sampleData = [
+        [TextCellValue('ABC123'), TextCellValue('John Doe'), TextCellValue('1234567890')],
+        [TextCellValue('XYZ456'), TextCellValue('Jane Smith'), TextCellValue('0987654321')],
+        [TextCellValue('DEF789'), TextCellValue('Ali Ahmed'), TextCellValue('5555555555')],
+      ];
+
+      for (var row in sampleData) {
+        sheet.appendRow(row);
+      }
+
+      // Add instructions sheet
+      final instructionsSheet = excel['Instructions'];
+      instructionsSheet.appendRow([TextCellValue('INSTRUCTIONS FOR IMPORTING STUDENTS')]);
+      instructionsSheet.appendRow([TextCellValue('')]);
+      instructionsSheet.appendRow([TextCellValue('1. Fill in the "Students Template" sheet with your student data')]);
+      instructionsSheet.appendRow([TextCellValue('2. Student ID: Required, must be unique (e.g., ABC123)')]);
+      instructionsSheet.appendRow([TextCellValue('3. Name: Required, student full name')]);
+      instructionsSheet.appendRow([TextCellValue('4. Phone Number: Optional, contact number')]);
+      instructionsSheet.appendRow([TextCellValue('')]);
+      instructionsSheet.appendRow([TextCellValue('5. Delete the sample rows before importing')]);
+      instructionsSheet.appendRow([TextCellValue('6. Keep the header row (first row)')]);
+      instructionsSheet.appendRow([TextCellValue('7. Save as .xlsx format (Excel 2007 or newer)')]);
+      instructionsSheet.appendRow([TextCellValue('')]);
+      instructionsSheet.appendRow([TextCellValue('IMPORTANT:')]);
+      instructionsSheet.appendRow([TextCellValue('- Do not use .xls format (old Excel)')]);
+      instructionsSheet.appendRow([TextCellValue('- Do not password-protect the file')]);
+      instructionsSheet.appendRow([TextCellValue('- Ensure file is not corrupted')]);
+
+      // Auto-fit columns
+      for (int i = 0; i < 3; i++) {
+        sheet.setColumnWidth(i, 25);
+      }
+      instructionsSheet.setColumnWidth(0, 70);
+
+      // Save file
+      final fileName = 'students_import_template.xlsx';
+      final fileBytes = excel.save();
+
+      if (fileBytes != null) {
+        if (kIsWeb) {
+          // Web platform - trigger download
+          _downloadFileWeb(fileBytes, fileName);
+          return 'Template downloaded successfully: $fileName';
+        } else {
+          // Mobile/Desktop platform - save to file system
+          final directory = Platform.isAndroid
+              ? Directory('/storage/emulated/0/Download')
+              : await getApplicationDocumentsDirectory();
+          final filePath = '${directory.path}/$fileName';
+          final file = File(filePath);
+          await file.writeAsBytes(fileBytes);
+
+          return 'Template saved successfully to:\n${directory.path}/$fileName';
+        }
+      } else {
+        return 'Failed to generate template';
+      }
+    } catch (e) {
+      return 'Template download failed: ${e.toString()}';
     }
   }
 }

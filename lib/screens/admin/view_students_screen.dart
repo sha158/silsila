@@ -37,11 +37,15 @@ class _ViewStudentsScreenState extends State<ViewStudentsScreen> {
     try {
       final studentsSnapshot = await _firebaseService.getAllStudents().first;
       final students = studentsSnapshot.docs.map((doc) {
-        return {
-          'id': doc.id,
-          ...doc.data() as Map<String, dynamic>,
-        };
+        return {'id': doc.id, ...doc.data() as Map<String, dynamic>};
       }).toList();
+
+      // Sort by name alphabetically
+      students.sort((a, b) {
+        final nameA = (a['name'] ?? '').toString().toLowerCase();
+        final nameB = (b['name'] ?? '').toString().toLowerCase();
+        return nameA.compareTo(nameB);
+      });
 
       setState(() {
         _allStudents = students;
@@ -73,11 +77,36 @@ class _ViewStudentsScreenState extends State<ViewStudentsScreen> {
           final searchLower = query.toLowerCase();
 
           return name.contains(searchLower) ||
-                 studentId.contains(searchLower) ||
-                 phone.contains(searchLower);
+              studentId.contains(searchLower) ||
+              phone.contains(searchLower);
         }).toList();
       }
     });
+  }
+
+  Future<void> _downloadTemplate() async {
+    try {
+      final result = await _excelService.downloadSampleTemplate();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result),
+            backgroundColor: result.contains('success') ? Colors.green : Colors.orange,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error downloading template: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _importFromExcel() async {
@@ -104,9 +133,7 @@ class _ViewStudentsScreenState extends State<ViewStudentsScreen> {
                 const Text('Import Result'),
               ],
             ),
-            content: SingleChildScrollView(
-              child: Text(result['message']),
-            ),
+            content: SingleChildScrollView(child: Text(result['message'])),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
@@ -139,9 +166,7 @@ class _ViewStudentsScreenState extends State<ViewStudentsScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
           children: [
             Icon(Icons.warning, color: Colors.red.shade700),
@@ -192,7 +217,9 @@ class _ViewStudentsScreenState extends State<ViewStudentsScreen> {
             SnackBar(
               content: Text(
                 'Deleted $deletedCount students successfully' +
-                (failedCount > 0 ? '\nFailed to delete $failedCount students' : ''),
+                    (failedCount > 0
+                        ? '\nFailed to delete $failedCount students'
+                        : ''),
               ),
               backgroundColor: failedCount > 0 ? Colors.orange : Colors.green,
               duration: const Duration(seconds: 3),
@@ -236,6 +263,11 @@ class _ViewStudentsScreenState extends State<ViewStudentsScreen> {
           ),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.download_rounded),
+            onPressed: _downloadTemplate,
+            tooltip: 'Download Excel Template',
+          ),
           if (_allStudents.isNotEmpty)
             IconButton(
               icon: const Icon(Icons.delete_sweep),
@@ -263,10 +295,7 @@ class _ViewStudentsScreenState extends State<ViewStudentsScreen> {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              Colors.blue.shade50,
-              Colors.white,
-            ],
+            colors: [Colors.blue.shade50, Colors.white],
           ),
         ),
         child: Column(
@@ -305,102 +334,107 @@ class _ViewStudentsScreenState extends State<ViewStudentsScreen> {
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
                   : _filteredStudents.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.people_outline,
-                                size: 80,
-                                color: Colors.grey.shade400,
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                _searchController.text.isEmpty
-                                    ? 'No students found'
-                                    : 'No matching students',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  color: Colors.grey.shade600,
-                                ),
-                              ),
-                            ],
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.people_outline,
+                            size: 80,
+                            color: Colors.grey.shade400,
                           ),
-                        )
-                      : RefreshIndicator(
-                          onRefresh: _loadStudents,
-                          child: ListView.builder(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            itemCount: _filteredStudents.length,
-                            itemBuilder: (context, index) {
-                              final student = _filteredStudents[index];
-                              return Card(
-                                elevation: 2,
-                                margin: const EdgeInsets.only(bottom: 12),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                          const SizedBox(height: 16),
+                          Text(
+                            _searchController.text.isEmpty
+                                ? 'No students found'
+                                : 'No matching students',
+                            style: TextStyle(
+                              fontSize: 18,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : RefreshIndicator(
+                      onRefresh: _loadStudents,
+                      child: ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        itemCount: _filteredStudents.length,
+                        itemBuilder: (context, index) {
+                          final student = _filteredStudents[index];
+                          return Card(
+                            elevation: 2,
+                            margin: const EdgeInsets.only(bottom: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: ListTile(
+                              contentPadding: const EdgeInsets.all(16),
+                              leading: CircleAvatar(
+                                backgroundColor: Colors.blue.shade700,
+                                radius: 28,
+                                child: Text(
+                                  (student['name'] ?? 'N')
+                                      .toString()
+                                      .substring(0, 1)
+                                      .toUpperCase(),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
-                                child: ListTile(
-                                  contentPadding: const EdgeInsets.all(16),
-                                  leading: CircleAvatar(
-                                    backgroundColor: Colors.blue.shade700,
-                                    radius: 28,
-                                    child: Text(
-                                      (student['name'] ?? 'N')
+                              ),
+                              title: Text(
+                                student['name'] ?? 'Unknown',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'ID: ${student['id'] ?? 'N/A'}',
+                                    style: TextStyle(
+                                      color: Colors.grey.shade700,
+                                    ),
+                                  ),
+                                  if (student['phoneNumber'] != null &&
+                                      student['phoneNumber']
                                           .toString()
-                                          .substring(0, 1)
-                                          .toUpperCase(),
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 24,
-                                        fontWeight: FontWeight.bold,
+                                          .isNotEmpty)
+                                    Text(
+                                      'Place: ${student['phoneNumber']}',
+                                      style: TextStyle(
+                                        color: Colors.grey.shade700,
                                       ),
                                     ),
-                                  ),
-                                  title: Text(
-                                    student['name'] ?? 'Unknown',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                                  subtitle: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        'ID: ${student['id'] ?? 'N/A'}',
-                                        style: TextStyle(
-                                          color: Colors.grey.shade700,
-                                        ),
-                                      ),
-                                      if (student['phoneNumber'] != null && student['phoneNumber'].toString().isNotEmpty)
-                                        Text(
-                                          'Place: ${student['phoneNumber']}',
-                                          style: TextStyle(
-                                            color: Colors.grey.shade700,
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                  trailing: const Icon(
-                                    Icons.arrow_forward_ios,
-                                    size: 16,
-                                  ),
-                                  onTap: () {
-                                    Navigator.of(context).push(
+                                ],
+                              ),
+                              trailing: const Icon(
+                                Icons.arrow_forward_ios,
+                                size: 16,
+                              ),
+                              onTap: () {
+                                Navigator.of(context)
+                                    .push(
                                       MaterialPageRoute(
                                         builder: (_) => StudentDetailScreen(
                                           studentId: student['id'],
                                         ),
                                       ),
-                                    ).then((_) => _loadStudents());
-                                  },
-                                ),
-                              );
-                            },
-                          ),
-                        ),
+                                    )
+                                    .then((_) => _loadStudents());
+                              },
+                            ),
+                          );
+                        },
+                      ),
+                    ),
             ),
           ],
         ),

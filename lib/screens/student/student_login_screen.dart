@@ -52,9 +52,9 @@ class _StudentLoginScreenState extends State<StudentLoginScreen>
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
 
-      // Login
+      // Login (convert to uppercase for case-insensitive login)
       final result = await authService.studentLogin(
-        _studentIdController.text.trim(),
+        _studentIdController.text.trim().toUpperCase(),
       );
 
       if (!mounted) return;

@@ -19,7 +19,10 @@ class FirebaseService {
     }
   }
 
-  Future<bool> updateStudent(String studentId, Map<String, dynamic> data) async {
+  Future<bool> updateStudent(
+    String studentId,
+    Map<String, dynamic> data,
+  ) async {
     try {
       await _firestore.collection('students').doc(studentId).update(data);
       return true;
@@ -40,10 +43,7 @@ class FirebaseService {
   }
 
   Stream<QuerySnapshot> getAllStudents() {
-    return _firestore
-        .collection('students')
-        .orderBy('createdAt', descending: true)
-        .snapshots();
+    return _firestore.collection('students').snapshots();
   }
 
   Future<DocumentSnapshot> getStudent(String studentId) {
@@ -53,7 +53,9 @@ class FirebaseService {
   // Class Management
   Future<String?> addClass(ClassModel classModel) async {
     try {
-      final docRef = await _firestore.collection('classes').add(classModel.toMap());
+      final docRef = await _firestore
+          .collection('classes')
+          .add(classModel.toMap());
       return docRef.id;
     } catch (e) {
       print('Error adding class: $e');
@@ -129,7 +131,10 @@ class FirebaseService {
   ) {
     return _firestore
         .collection('attendance')
-        .where('markedAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
+        .where(
+          'markedAt',
+          isGreaterThanOrEqualTo: Timestamp.fromDate(startDate),
+        )
         .where('markedAt', isLessThanOrEqualTo: Timestamp.fromDate(endDate))
         .orderBy('markedAt', descending: true)
         .get();

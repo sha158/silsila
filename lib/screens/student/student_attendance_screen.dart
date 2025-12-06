@@ -52,10 +52,13 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen>
         return;
       }
 
-      // Get all classes ever held
+      // Get all classes ever held (source of truth)
       final classesSnapshot = await FirebaseFirestore.instance
           .collection('classes')
           .get();
+
+      // Build set of valid class IDs
+      final validClassIds = classesSnapshot.docs.map((d) => d.id).toSet();
 
       // Get student's attendance records
       final attendanceSnapshot = await FirebaseFirestore.instance
@@ -63,8 +66,10 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen>
           .where('studentId', isEqualTo: _studentId)
           .get();
 
+      // Only count attendance for classes that still exist
       final attendedClassIds = attendanceSnapshot.docs
           .map((doc) => doc.data()['classId'] as String)
+          .where((classId) => validClassIds.contains(classId))
           .toSet();
 
       // Calculate stats
@@ -143,7 +148,8 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen>
 
   double get _overallPercentage {
     if (_totalSessionsHeld == 0) return 0;
-    return (_sessionsAttended / _totalSessionsHeld) * 100;
+    final percentage = (_sessionsAttended / _totalSessionsHeld) * 100;
+    return percentage.clamp(0, 100); // Cap at 100%
   }
 
   Color _getPercentageColor(double percentage) {
@@ -275,7 +281,7 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen>
                     Container(width: 1, height: 50, color: Colors.white24),
                     _buildStatColumn(
                       'Sessions Missed',
-                      '${_totalSessionsHeld - _sessionsAttended}',
+                      '${(_totalSessionsHeld - _sessionsAttended).clamp(0, _totalSessionsHeld)}',
                       Icons.cancel,
                       Colors.red,
                     ),

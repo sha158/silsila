@@ -61,9 +61,11 @@ class _ViewAttendanceScreenState extends State<ViewAttendanceScreen> {
         _classes = classes;
         _students = studentsMap;
         _allAttendance = attendance;
-        _filteredAttendance = attendance;
         _isLoading = false;
       });
+
+      // Apply filters to exclude deleted students
+      _applyFilters();
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
@@ -80,6 +82,19 @@ class _ViewAttendanceScreenState extends State<ViewAttendanceScreen> {
   void _applyFilters() {
     setState(() {
       _filteredAttendance = _allAttendance.where((attendance) {
+        // Only show attendance for students that exist in the database
+        final studentId = attendance['studentId'];
+        if (studentId == null || !_students.containsKey(studentId)) {
+          return false;
+        }
+
+        // Only show attendance for classes that exist in the database
+        final classId = attendance['classId'];
+        final classExists = _classes.any((c) => c['id'] == classId);
+        if (!classExists) {
+          return false;
+        }
+
         bool matchesClass =
             _selectedClassId == null ||
             attendance['classId'] == _selectedClassId;

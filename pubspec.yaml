@@ -55,7 +55,8 @@ dependencies:
   provider: ^6.1.1
 
   # Excel Export
-  excel: ^4.0.3
+  excel: ^4.0.6
+  csv: ^6.0.0
   path_provider: ^2.1.2
   file_picker: ^8.1.6
   permission_handler: ^11.2.0

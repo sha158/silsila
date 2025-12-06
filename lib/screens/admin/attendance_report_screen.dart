@@ -33,9 +33,10 @@ class _AttendanceReportScreenState extends State<AttendanceReportScreen> {
       final classesSnapshot = await _firestore.collection('classes').get();
       _totalSessions = classesSnapshot.docs.length;
 
-      // Get unique subjects
+      // Get unique subjects and track all valid class IDs
       Set<String> subjectsSet = {};
       Map<String, Set<String>> subjectClassIds = {}; // subject -> classIds
+      Set<String> validClassIds = {}; // All valid class IDs
 
       for (var doc in classesSnapshot.docs) {
         final subject = doc.data()['subjectName'] ?? 'Unknown';
@@ -45,6 +46,7 @@ class _AttendanceReportScreenState extends State<AttendanceReportScreen> {
           subjectClassIds[subject] = {};
         }
         subjectClassIds[subject]!.add(doc.id);
+        validClassIds.add(doc.id); // Track valid class IDs
       }
 
       _subjects = ['All', ...subjectsSet.toList()..sort()];
@@ -60,11 +62,16 @@ class _AttendanceReportScreenState extends State<AttendanceReportScreen> {
           .collection('attendance')
           .get();
 
-      // Map: studentId -> Set of attended classIds
+      // Map: studentId -> Set of attended classIds (only for valid classes)
       Map<String, Set<String>> studentAttendance = {};
       for (var doc in attendanceSnapshot.docs) {
         final studentId = doc.data()['studentId'] as String;
         final classId = doc.data()['classId'] as String;
+
+        // Only count attendance for classes that still exist
+        if (!validClassIds.contains(classId)) {
+          continue;
+        }
 
         if (!studentAttendance.containsKey(studentId)) {
           studentAttendance[studentId] = {};
@@ -156,7 +163,8 @@ class _AttendanceReportScreenState extends State<AttendanceReportScreen> {
       final stats = subjectStats[_filterSubject] ?? {'attended': 0, 'total': 0};
       final attended = stats['attended'] ?? 0;
       final total = stats['total'] ?? 0;
-      final percentage = total > 0 ? (attended / total) * 100 : 0.0;
+      // Clamp percentage to max 100%
+      final percentage = total > 0 ? ((attended / total) * 100).clamp(0.0, 100.0) : 0.0;
 
       return {
         ...report,
