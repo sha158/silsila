@@ -52,10 +52,14 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> {
                 }
               },
               backgroundColor: Colors.blue.shade700,
-              icon: const Icon(Icons.qr_code_scanner),
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.qr_code_scanner, color: Colors.white),
               label: const Text(
                 'Scan QR',
-                style: TextStyle(fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
               ),
             )
           : null,
@@ -111,6 +115,47 @@ class _HomeTabState extends State<_HomeTab> {
     });
   }
 
+  Future<Map<String, dynamic>> _getStudentInfoWithStats() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final studentId = prefs.getString('studentId');
+
+      String name = 'Student';
+      int attended = 0;
+      int total = 0;
+
+      if (studentId != null) {
+        // Get student name
+        final doc = await FirebaseFirestore.instance
+            .collection('students')
+            .doc(studentId)
+            .get();
+
+        if (doc.exists) {
+          final data = doc.data();
+          name = data?['name'] ?? studentId;
+        }
+
+        // Get total classes
+        final classesSnapshot = await FirebaseFirestore.instance
+            .collection('classes')
+            .get();
+        total = classesSnapshot.docs.length;
+
+        // Get attended classes
+        final attendanceSnapshot = await FirebaseFirestore.instance
+            .collection('attendance')
+            .where('studentId', isEqualTo: studentId)
+            .get();
+        attended = attendanceSnapshot.docs.length;
+      }
+
+      return {'name': name, 'attended': attended, 'total': total};
+    } catch (e) {
+      return {'name': 'Student', 'attended': 0, 'total': 0};
+    }
+  }
+
   @override
   void dispose() {
     _confettiController.dispose();
@@ -137,6 +182,7 @@ class _HomeTabState extends State<_HomeTab> {
   Future<void> _showMarkAttendanceDialog(ClassModel classModel) async {
     final passwordController = TextEditingController();
     final formKey = GlobalKey<FormState>();
+    bool obscurePassword = true;
 
     final result = await showModalBottomSheet<bool>(
       context: context,
@@ -144,119 +190,142 @@ class _HomeTabState extends State<_HomeTab> {
       isDismissible: true,
       enableDrag: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
-          ),
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(28),
-                topRight: Radius.circular(28),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 20,
-                  offset: const Offset(0, -5),
-                ),
-              ],
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom,
             ),
-            child: Form(
-              key: formKey,
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Handle bar
-                    Center(
-                      child: Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.grey[300],
-                          borderRadius: BorderRadius.circular(2),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(28),
+                  topRight: Radius.circular(28),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 20,
+                    offset: const Offset(0, -5),
+                  ),
+                ],
+              ),
+              child: Form(
+                key: formKey,
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Handle bar
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: Colors.grey[300],
+                            borderRadius: BorderRadius.circular(2),
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 24),
+                      const SizedBox(height: 24),
 
-                    // Title with icon
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.blue[50],
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Icon(
-                            Icons.check_circle,
-                            color: Colors.blue[700],
-                            size: 28,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        const Expanded(
-                          child: Text(
-                            'Mark Attendance',
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
+                      // Title with icon
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.blue[50],
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Icon(
+                              Icons.check_circle,
+                              color: Colors.blue[700],
+                              size: 28,
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-
-                    // Class info card
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.blue[50],
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.blue[100]!, width: 1),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.book,
-                                size: 20,
-                                color: Colors.blue[700],
+                          const SizedBox(width: 16),
+                          const Expanded(
+                            child: Text(
+                              'Mark Attendance',
+                              style: TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
                               ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  classModel.subjectName,
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 18,
-                                    color: Colors.blue[900],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Class info card
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.blue[50],
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: Colors.blue[100]!,
+                            width: 1,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.book,
+                                  size: 20,
+                                  color: Colors.blue[700],
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    classModel.subjectName,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 18,
+                                      color: Colors.blue[900],
+                                    ),
                                   ),
                                 ),
+                              ],
+                            ),
+                            if (classModel.teacherName.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.person,
+                                    size: 18,
+                                    color: Colors.grey[600],
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    classModel.teacherName,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: Colors.grey[700],
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
-                          ),
-                          if (classModel.teacherName.isNotEmpty) ...[
                             const SizedBox(height: 8),
                             Row(
                               children: [
                                 Icon(
-                                  Icons.person,
+                                  Icons.calendar_today,
                                   size: 18,
                                   color: Colors.grey[600],
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
-                                  classModel.teacherName,
+                                  classModel.scheduledDate,
                                   style: TextStyle(
                                     fontSize: 14,
                                     color: Colors.grey[700],
@@ -265,196 +334,198 @@ class _HomeTabState extends State<_HomeTab> {
                               ],
                             ),
                           ],
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.calendar_today,
-                                size: 18,
-                                color: Colors.grey[600],
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                classModel.scheduledDate,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey[700],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Password field
+                      Text(
+                        'Enter Session Password',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey[700],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: passwordController,
+                        decoration: InputDecoration(
+                          hintText:
+                              'Enter the password provided by your teacher',
+                          prefixIcon: Icon(
+                            Icons.lock_outline,
+                            color: Colors.blue[700],
+                          ),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              obscurePassword
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
+                              color: Colors.grey[600],
+                            ),
+                            onPressed: () {
+                              setModalState(() {
+                                obscurePassword = !obscurePassword;
+                              });
+                            },
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: BorderSide(color: Colors.grey[300]!),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: BorderSide(color: Colors.grey[300]!),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: BorderSide(
+                              color: Colors.blue[700]!,
+                              width: 2,
+                            ),
+                          ),
+                          filled: true,
+                          fillColor: Colors.grey[50],
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 16,
+                          ),
+                        ),
+                        obscureText: obscurePassword,
+                        textInputAction: TextInputAction.done,
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter the password';
+                          }
+                          return null;
+                        },
+                        onFieldSubmitted: (value) async {
+                          if (!formKey.currentState!.validate()) return;
+
+                          final password = passwordController.text.trim();
+                          if (password != classModel.password) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: const Row(
+                                  children: [
+                                    Icon(
+                                      Icons.error_outline,
+                                      color: Colors.white,
+                                    ),
+                                    SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text('Incorrect password!'),
+                                    ),
+                                  ],
+                                ),
+                                backgroundColor: Colors.red,
+                                behavior: SnackBarBehavior.floating,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
                                 ),
                               ),
-                            ],
+                            );
+                            return;
+                          }
+
+                          Navigator.pop(context, true);
+                        },
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Action buttons
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.pop(context, false),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.grey[700],
+                                side: BorderSide(color: Colors.grey[300]!),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                ),
+                              ),
+                              child: const Text(
+                                'Cancel',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            flex: 2,
+                            child: ElevatedButton(
+                              onPressed: () async {
+                                if (!formKey.currentState!.validate()) return;
+
+                                final password = passwordController.text.trim();
+                                if (password != classModel.password) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: const Row(
+                                        children: [
+                                          Icon(
+                                            Icons.error_outline,
+                                            color: Colors.white,
+                                          ),
+                                          SizedBox(width: 10),
+                                          Expanded(
+                                            child: Text('Incorrect password!'),
+                                          ),
+                                        ],
+                                      ),
+                                      backgroundColor: Colors.red,
+                                      behavior: SnackBarBehavior.floating,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                    ),
+                                  );
+                                  return;
+                                }
+
+                                Navigator.pop(context, true);
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.blue[700],
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                ),
+                                elevation: 2,
+                              ),
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.check_circle),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Submit',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ],
                       ),
-                    ),
-                    const SizedBox(height: 24),
-
-                    // Password field
-                    Text(
-                      'Enter Session Password',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey[700],
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextFormField(
-                      controller: passwordController,
-                      decoration: InputDecoration(
-                        hintText: 'Enter the password provided by your teacher',
-                        prefixIcon: Icon(
-                          Icons.lock_outline,
-                          color: Colors.blue[700],
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide(color: Colors.grey[300]!),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide(color: Colors.grey[300]!),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide(
-                            color: Colors.blue[700]!,
-                            width: 2,
-                          ),
-                        ),
-                        filled: true,
-                        fillColor: Colors.grey[50],
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 16,
-                        ),
-                      ),
-                      obscureText: true,
-                      textInputAction: TextInputAction.done,
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please enter the password';
-                        }
-                        return null;
-                      },
-                      onFieldSubmitted: (value) async {
-                        if (!formKey.currentState!.validate()) return;
-
-                        final password = passwordController.text.trim();
-                        if (password != classModel.password) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: const Row(
-                                children: [
-                                  Icon(
-                                    Icons.error_outline,
-                                    color: Colors.white,
-                                  ),
-                                  SizedBox(width: 10),
-                                  Expanded(child: Text('Incorrect password!')),
-                                ],
-                              ),
-                              backgroundColor: Colors.red,
-                              behavior: SnackBarBehavior.floating,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                            ),
-                          );
-                          return;
-                        }
-
-                        Navigator.pop(context, true);
-                      },
-                    ),
-                    const SizedBox(height: 24),
-
-                    // Action buttons
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () => Navigator.pop(context, false),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.grey[700],
-                              side: BorderSide(color: Colors.grey[300]!),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                            ),
-                            child: const Text(
-                              'Cancel',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          flex: 2,
-                          child: ElevatedButton(
-                            onPressed: () async {
-                              if (!formKey.currentState!.validate()) return;
-
-                              final password = passwordController.text.trim();
-                              if (password != classModel.password) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: const Row(
-                                      children: [
-                                        Icon(
-                                          Icons.error_outline,
-                                          color: Colors.white,
-                                        ),
-                                        SizedBox(width: 10),
-                                        Expanded(
-                                          child: Text('Incorrect password!'),
-                                        ),
-                                      ],
-                                    ),
-                                    backgroundColor: Colors.red,
-                                    behavior: SnackBarBehavior.floating,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                  ),
-                                );
-                                return;
-                              }
-
-                              Navigator.pop(context, true);
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blue[700],
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              elevation: 2,
-                            ),
-                            child: const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.check_circle),
-                                SizedBox(width: 8),
-                                Text(
-                                  'Submit',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                  ],
+                      const SizedBox(height: 8),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -494,6 +565,9 @@ class _HomeTabState extends State<_HomeTab> {
       if (result.success) {
         // Play confetti animation
         _confettiController.play();
+
+        // Refresh the UI to show updated attendance status
+        setState(() {});
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -569,15 +643,28 @@ class _HomeTabState extends State<_HomeTab> {
           Column(
             children: [
               // Header with gradient
-              FutureBuilder<String?>(
-                future: SharedPreferences.getInstance().then(
-                  (prefs) => prefs.getString('studentId'),
-                ),
+              FutureBuilder<Map<String, dynamic>>(
+                future: _getStudentInfoWithStats(),
                 builder: (context, snapshot) {
-                  final studentId = snapshot.data ?? 'Student';
+                  final studentName = snapshot.data?['name'] ?? 'Student';
+                  final attendedCount = snapshot.data?['attended'] ?? 0;
+                  final totalClasses = snapshot.data?['total'] ?? 0;
+                  final percentage = totalClasses > 0
+                      ? (attendedCount / totalClasses * 100)
+                      : 0.0;
+
+                  // Time-based greeting
+                  final hour = DateTime.now().hour;
+                  String greeting = 'Good morning';
+                  if (hour >= 12 && hour < 17) {
+                    greeting = 'Good afternoon';
+                  } else if (hour >= 17) {
+                    greeting = 'Good evening';
+                  }
+
                   return Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 30),
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         begin: Alignment.topLeft,
@@ -592,20 +679,126 @@ class _HomeTabState extends State<_HomeTab> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          'Welcome back,',
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.9),
-                            fontSize: 16,
-                          ),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '$greeting,',
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.85),
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    studentName,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            // Mini attendance indicator
+                            if (totalClasses > 0)
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: Column(
+                                  children: [
+                                    Stack(
+                                      alignment: Alignment.center,
+                                      children: [
+                                        SizedBox(
+                                          width: 50,
+                                          height: 50,
+                                          child: CircularProgressIndicator(
+                                            value: percentage / 100,
+                                            strokeWidth: 4,
+                                            backgroundColor: Colors.white
+                                                .withOpacity(0.2),
+                                            valueColor:
+                                                AlwaysStoppedAnimation<Color>(
+                                                  percentage >= 80
+                                                      ? Colors.greenAccent
+                                                      : percentage >= 60
+                                                      ? Colors.orangeAccent
+                                                      : Colors.redAccent,
+                                                ),
+                                          ),
+                                        ),
+                                        Text(
+                                          '${percentage.toStringAsFixed(0)}%',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Attendance',
+                                      style: TextStyle(
+                                        color: Colors.white.withOpacity(0.8),
+                                        fontSize: 10,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
                         ),
-                        const SizedBox(height: 5),
-                        Text(
-                          studentId,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 28,
-                            fontWeight: FontWeight.bold,
+                        const SizedBox(height: 16),
+                        // Quick stats row
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              _QuickStat(
+                                icon: Icons.check_circle,
+                                label: 'Attended',
+                                value: '$attendedCount',
+                                color: Colors.greenAccent,
+                              ),
+                              Container(
+                                width: 1,
+                                height: 30,
+                                color: Colors.white.withOpacity(0.2),
+                              ),
+                              _QuickStat(
+                                icon: Icons.event,
+                                label: 'Total',
+                                value: '$totalClasses',
+                                color: Colors.white,
+                              ),
+                              Container(
+                                width: 1,
+                                height: 30,
+                                color: Colors.white.withOpacity(0.2),
+                              ),
+                              _QuickStat(
+                                icon: Icons.cancel,
+                                label: 'Missed',
+                                value: '${totalClasses - attendedCount}',
+                                color: Colors.redAccent,
+                              ),
+                            ],
                           ),
                         ),
                       ],
@@ -619,16 +812,10 @@ class _HomeTabState extends State<_HomeTab> {
                 child: StreamBuilder<QuerySnapshot>(
                   stream: FirebaseFirestore.instance
                       .collection('classes')
-                      .where(
-                        'passwordActiveUntil',
-                        isGreaterThanOrEqualTo: Timestamp.fromDate(
-                          DateTime.now(),
-                        ),
-                      )
-                      .orderBy('passwordActiveUntil', descending: true)
                       .snapshots(),
                   builder: (context, snapshot) {
                     if (snapshot.hasError) {
+                      print('Error loading classes: ${snapshot.error}');
                       return Center(
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -646,6 +833,15 @@ class _HomeTabState extends State<_HomeTab> {
                                 color: Colors.grey[600],
                               ),
                             ),
+                            const SizedBox(height: 8),
+                            Text(
+                              '${snapshot.error}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[500],
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
                           ],
                         ),
                       );
@@ -660,15 +856,36 @@ class _HomeTabState extends State<_HomeTab> {
                     }
 
                     final now = DateTime.now();
+                    final today = DateTime(now.year, now.month, now.day);
+
                     final classes = snapshot.data!.docs
                         .map((doc) => ClassModel.fromFirestore(doc))
-                        .where(
-                          (classModel) =>
-                              classModel.passwordActiveFrom.isBefore(now) ||
-                              classModel.passwordActiveFrom.isAtSameMomentAs(
-                                now,
-                              ),
-                        )
+                        .where((classModel) {
+                          // Get date-only versions for comparison
+                          final startDay = DateTime(
+                            classModel.passwordActiveFrom.year,
+                            classModel.passwordActiveFrom.month,
+                            classModel.passwordActiveFrom.day,
+                          );
+                          final endDay = DateTime(
+                            classModel.passwordActiveUntil.year,
+                            classModel.passwordActiveUntil.month,
+                            classModel.passwordActiveUntil.day,
+                          );
+
+                          // Check if today is within the active date range
+                          final isActive =
+                              (today.isAtSameMomentAs(startDay) ||
+                                  today.isAfter(startDay)) &&
+                              (today.isAtSameMomentAs(endDay) ||
+                                  today.isBefore(endDay));
+
+                          print(
+                            'Class: ${classModel.subjectName}, Active: $isActive, StartDay: $startDay, EndDay: $endDay, Today: $today',
+                          );
+
+                          return isActive;
+                        })
                         .toList();
 
                     if (classes.isEmpty) {
@@ -961,6 +1178,43 @@ class _ClassCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _QuickStat extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  const _QuickStat({
+    Key? key,
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Icon(icon, color: color, size: 20),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            color: color,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 10),
+        ),
+      ],
     );
   }
 }

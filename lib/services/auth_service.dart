@@ -13,13 +13,42 @@ class AuthService {
       // Get device info
       Map<String, String> deviceInfo = await DeviceService.getDeviceInfo();
 
-      // Check if student exists
-      DocumentSnapshot studentDoc = await _firestore
-          .collection('students')
-          .doc(studentId.toUpperCase())
-          .get();
+      // Normalize input - trim and convert to uppercase
+      String inputId = studentId.trim().toUpperCase();
 
-      if (!studentDoc.exists) {
+      // Try to find student - first exact match
+      DocumentSnapshot? studentDoc;
+      String? actualStudentId;
+
+      // Step 1: Try exact match with the input
+      studentDoc = await _firestore.collection('students').doc(inputId).get();
+
+      if (studentDoc.exists) {
+        actualStudentId = inputId;
+      } else {
+        // Step 2: If input doesn't contain hyphen, search for ID ending with input
+        // This allows "M001" to match "SHWN-M001"
+        if (!inputId.contains('-')) {
+          // Search for student where ID ends with the input
+          QuerySnapshot querySnapshot = await _firestore
+              .collection('students')
+              .get();
+
+          // Find the first document where ID ends with the input
+          for (var doc in querySnapshot.docs) {
+            String docId = doc.id.toUpperCase();
+            // Check if document ID ends with "-{input}" or equals input
+            if (docId.endsWith('-$inputId') || docId == inputId) {
+              studentDoc = doc;
+              actualStudentId = doc.id;
+              break;
+            }
+          }
+        }
+      }
+
+      // If still not found, return error
+      if (studentDoc == null || !studentDoc.exists || actualStudentId == null) {
         return {'success': false, 'message': 'Invalid Student ID'};
       }
 
@@ -35,19 +64,16 @@ class AuthService {
 
       // First-time login - bind device
       if (student.deviceId == null || student.deviceId!.isEmpty) {
-        await _firestore
-            .collection('students')
-            .doc(studentId.toUpperCase())
-            .update({
-              'deviceId': deviceInfo['deviceId'],
-              'deviceModel': deviceInfo['deviceModel'],
-              'registeredOn': FieldValue.serverTimestamp(),
-              'lastLoginAt': FieldValue.serverTimestamp(),
-            });
+        await _firestore.collection('students').doc(actualStudentId).update({
+          'deviceId': deviceInfo['deviceId'],
+          'deviceModel': deviceInfo['deviceModel'],
+          'registeredOn': FieldValue.serverTimestamp(),
+          'lastLoginAt': FieldValue.serverTimestamp(),
+        });
 
-        // Save to SharedPreferences
+        // Save to SharedPreferences - use the actual student ID from database
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('studentId', studentId.toUpperCase());
+        await prefs.setString('studentId', actualStudentId);
         await prefs.setBool('isStudent', true);
 
         return {
@@ -67,14 +93,13 @@ class AuthService {
       }
 
       // Update last login
-      await _firestore
-          .collection('students')
-          .doc(studentId.toUpperCase())
-          .update({'lastLoginAt': FieldValue.serverTimestamp()});
+      await _firestore.collection('students').doc(actualStudentId).update({
+        'lastLoginAt': FieldValue.serverTimestamp(),
+      });
 
-      // Save to SharedPreferences
+      // Save to SharedPreferences - use the actual student ID from database
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('studentId', studentId.toUpperCase());
+      await prefs.setString('studentId', actualStudentId);
       await prefs.setBool('isStudent', true);
 
       return {
@@ -210,6 +235,16 @@ class AuthService {
   // Logout
   Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
+
+    // Only remove session-related keys, preserve "Keep me logged in" credentials
+    await prefs.remove('studentId');
+    await prefs.remove('isStudent');
+    await prefs.remove('adminId');
+    await prefs.remove('isAdmin');
+
+    // Keep the following keys intact for "Keep me logged in" feature:
+    // - admin_saved_email
+    // - admin_saved_password
+    // - admin_keep_logged_in
   }
 }

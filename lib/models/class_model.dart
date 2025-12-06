@@ -39,11 +39,17 @@ class ClassModel {
       startTime: data['startTime'] ?? '',
       endTime: data['endTime'] ?? '',
       password: data['password'] ?? '',
-      passwordActiveFrom: (data['passwordActiveFrom'] as Timestamp).toDate(),
-      passwordActiveUntil: (data['passwordActiveUntil'] as Timestamp).toDate(),
+      passwordActiveFrom: data['passwordActiveFrom'] != null
+          ? (data['passwordActiveFrom'] as Timestamp).toDate()
+          : DateTime.now(),
+      passwordActiveUntil: data['passwordActiveUntil'] != null
+          ? (data['passwordActiveUntil'] as Timestamp).toDate()
+          : DateTime.now().add(const Duration(hours: 1)),
       isPasswordActive: data['isPasswordActive'] ?? false,
       autoGenerate: data['autoGenerate'] ?? false,
-      createdAt: (data['createdAt'] as Timestamp).toDate(),
+      createdAt: data['createdAt'] != null
+          ? (data['createdAt'] as Timestamp).toDate()
+          : DateTime.now(),
     );
   }
 

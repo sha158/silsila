@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
-import '../../models/attendance.dart';
 
 class StudentAttendanceScreen extends StatefulWidget {
   const StudentAttendanceScreen({Key? key}) : super(key: key);
@@ -13,22 +12,144 @@ class StudentAttendanceScreen extends StatefulWidget {
 }
 
 class _StudentAttendanceScreenState extends State<StudentAttendanceScreen>
-    with AutomaticKeepAliveClientMixin {
+    with AutomaticKeepAliveClientMixin, SingleTickerProviderStateMixin {
   @override
   bool get wantKeepAlive => true;
 
-  String _selectedFilter = 'all'; // all, week, month
+  late TabController _tabController;
+  String? _studentId;
+  bool _isLoading = true;
 
-  DateTime get _filterStartDate {
-    final now = DateTime.now();
-    switch (_selectedFilter) {
-      case 'week':
-        return now.subtract(const Duration(days: 7));
-      case 'month':
-        return now.subtract(const Duration(days: 30));
-      default:
-        return DateTime(2020); // All time
+  // Stats data
+  int _totalSessionsHeld = 0;
+  int _sessionsAttended = 0;
+  Map<String, Map<String, int>> _subjectStats =
+      {}; // subject -> {attended, total}
+  List<Map<String, dynamic>> _eventHistory = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 3, vsync: this);
+    _loadData();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _studentId = prefs.getString('studentId');
+
+      if (_studentId == null) {
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      // Get all classes ever held
+      final classesSnapshot = await FirebaseFirestore.instance
+          .collection('classes')
+          .get();
+
+      // Get student's attendance records
+      final attendanceSnapshot = await FirebaseFirestore.instance
+          .collection('attendance')
+          .where('studentId', isEqualTo: _studentId)
+          .get();
+
+      final attendedClassIds = attendanceSnapshot.docs
+          .map((doc) => doc.data()['classId'] as String)
+          .toSet();
+
+      // Calculate stats
+      _totalSessionsHeld = classesSnapshot.docs.length;
+      _sessionsAttended = attendedClassIds.length;
+
+      // Calculate subject-wise stats
+      _subjectStats = {};
+      Map<String, List<Map<String, dynamic>>> eventsByDate = {};
+
+      for (var classDoc in classesSnapshot.docs) {
+        final data = classDoc.data();
+        final subjectName = data['subjectName'] ?? 'Unknown';
+        final attended = attendedClassIds.contains(classDoc.id);
+
+        // Subject stats
+        if (!_subjectStats.containsKey(subjectName)) {
+          _subjectStats[subjectName] = {'attended': 0, 'total': 0};
+        }
+        _subjectStats[subjectName]!['total'] =
+            (_subjectStats[subjectName]!['total'] ?? 0) + 1;
+        if (attended) {
+          _subjectStats[subjectName]!['attended'] =
+              (_subjectStats[subjectName]!['attended'] ?? 0) + 1;
+        }
+
+        // Group by date for event history
+        DateTime? classDate;
+        if (data['passwordActiveFrom'] != null) {
+          if (data['passwordActiveFrom'] is Timestamp) {
+            classDate = (data['passwordActiveFrom'] as Timestamp).toDate();
+          }
+        }
+
+        if (classDate != null) {
+          final dateKey = DateFormat('yyyy-MM-dd').format(classDate);
+          if (!eventsByDate.containsKey(dateKey)) {
+            eventsByDate[dateKey] = [];
+          }
+          eventsByDate[dateKey]!.add({
+            'classId': classDoc.id,
+            'subjectName': subjectName,
+            'teacherName': data['teacherName'] ?? 'Unknown',
+            'attended': attended,
+            'time': classDate,
+          });
+        }
+      }
+
+      // Convert to event history
+      _eventHistory = [];
+      eventsByDate.forEach((dateKey, sessions) {
+        final attendedCount = sessions
+            .where((s) => s['attended'] == true)
+            .length;
+        final totalCount = sessions.length;
+        _eventHistory.add({
+          'date': DateTime.parse(dateKey),
+          'sessions': sessions,
+          'attended': attendedCount,
+          'total': totalCount,
+        });
+      });
+
+      // Sort by date descending
+      _eventHistory.sort(
+        (a, b) => (b['date'] as DateTime).compareTo(a['date'] as DateTime),
+      );
+
+      setState(() => _isLoading = false);
+    } catch (e) {
+      setState(() => _isLoading = false);
+      debugPrint('Error loading attendance data: $e');
     }
+  }
+
+  double get _overallPercentage {
+    if (_totalSessionsHeld == 0) return 0;
+    return (_sessionsAttended / _totalSessionsHeld) * 100;
+  }
+
+  Color _getPercentageColor(double percentage) {
+    if (percentage >= 80) return Colors.green;
+    if (percentage >= 60) return Colors.orange;
+    return Colors.red;
   }
 
   @override
@@ -36,6 +157,7 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen>
     super.build(context);
 
     return Scaffold(
+      backgroundColor: Colors.grey[100],
       appBar: AppBar(
         title: const Text(
           'My Attendance',
@@ -44,480 +166,482 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen>
         backgroundColor: Colors.blue[700],
         foregroundColor: Colors.white,
         elevation: 0,
-      ),
-      body: FutureBuilder<String?>(
-        future: SharedPreferences.getInstance().then(
-          (prefs) => prefs.getString('studentId'),
+        actions: [
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadData),
+        ],
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: Colors.white,
+          indicatorWeight: 3,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          tabs: const [
+            Tab(text: 'Overview'),
+            Tab(text: 'By Subject'),
+            Tab(text: 'History'),
+          ],
         ),
-        builder: (context, studentSnapshot) {
-          if (!studentSnapshot.hasData || studentSnapshot.data == null) {
-            return const Center(child: Text('Please login to view attendance'));
-          }
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : TabBarView(
+              controller: _tabController,
+              children: [
+                _buildOverviewTab(),
+                _buildSubjectTab(),
+                _buildHistoryTab(),
+              ],
+            ),
+    );
+  }
 
-          final studentId = studentSnapshot.data!;
-
-          return Column(
-            children: [
-              // Header with gradient and filter
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [Colors.blue[700]!, Colors.blue[900]!],
-                  ),
-                  borderRadius: const BorderRadius.only(
-                    bottomLeft: Radius.circular(30),
-                    bottomRight: Radius.circular(30),
-                  ),
+  Widget _buildOverviewTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          // Main percentage card
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Colors.blue[700]!, Colors.blue[900]!],
+              ),
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.blue.withOpacity(0.3),
+                  blurRadius: 15,
+                  offset: const Offset(0, 8),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              ],
+            ),
+            child: Column(
+              children: [
+                const Text(
+                  'Overall Attendance',
+                  style: TextStyle(color: Colors.white70, fontSize: 16),
+                ),
+                const SizedBox(height: 16),
+                Stack(
+                  alignment: Alignment.center,
                   children: [
-                    const Text(
-                      'Attendance History',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
+                    SizedBox(
+                      width: 150,
+                      height: 150,
+                      child: CircularProgressIndicator(
+                        value: _overallPercentage / 100,
+                        strokeWidth: 12,
+                        backgroundColor: Colors.white.withOpacity(0.2),
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          _getPercentageColor(_overallPercentage),
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    // Filter chips
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: [
-                          _FilterChip(
-                            label: 'All Time',
-                            isSelected: _selectedFilter == 'all',
-                            onTap: () {
-                              setState(() {
-                                _selectedFilter = 'all';
-                              });
-                            },
+                    Column(
+                      children: [
+                        Text(
+                          '${_overallPercentage.toStringAsFixed(1)}%',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 36,
+                            fontWeight: FontWeight.bold,
                           ),
-                          const SizedBox(width: 8),
-                          _FilterChip(
-                            label: 'Last Week',
-                            isSelected: _selectedFilter == 'week',
-                            onTap: () {
-                              setState(() {
-                                _selectedFilter = 'week';
-                              });
-                            },
+                        ),
+                        Text(
+                          '$_sessionsAttended / $_totalSessionsHeld',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.8),
+                            fontSize: 14,
                           ),
-                          const SizedBox(width: 8),
-                          _FilterChip(
-                            label: 'Last Month',
-                            isSelected: _selectedFilter == 'month',
-                            onTap: () {
-                              setState(() {
-                                _selectedFilter = 'month';
-                              });
-                            },
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ),
-
-              // Attendance statistics
-              StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance
-                    .collection('attendance')
-                    .where('studentId', isEqualTo: studentId)
-                    .where(
-                      'markedAt',
-                      isGreaterThanOrEqualTo: Timestamp.fromDate(
-                        _filterStartDate,
-                      ),
-                    )
-                    .snapshots(),
-                builder: (context, snapshot) {
-                  if (!snapshot.hasData) {
-                    return const SizedBox.shrink();
-                  }
-
-                  final records = snapshot.data!.docs
-                      .map((doc) => Attendance.fromFirestore(doc))
-                      .toList();
-
-                  return Container(
-                    margin: const EdgeInsets.all(16),
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [Colors.blue[600]!, Colors.blue[800]!],
-                      ),
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.blue.withOpacity(0.3),
-                          blurRadius: 10,
-                          offset: const Offset(0, 5),
-                        ),
-                      ],
+                const SizedBox(height: 24),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildStatColumn(
+                      'Sessions Attended',
+                      '$_sessionsAttended',
+                      Icons.check_circle,
+                      Colors.green,
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: [
-                        _StatItem(
-                          icon: Icons.event,
-                          label: 'Total Classes',
-                          value: records.length.toString(),
-                        ),
-                        Container(
-                          width: 1,
-                          height: 40,
-                          color: Colors.white.withOpacity(0.3),
-                        ),
-                        _StatItem(
-                          icon: Icons.calendar_today,
-                          label: 'This Week',
-                          value: records
-                              .where(
-                                (r) => r.markedAt.isAfter(
-                                  DateTime.now().subtract(
-                                    const Duration(days: 7),
-                                  ),
-                                ),
-                              )
-                              .length
-                              .toString(),
-                        ),
-                      ],
+                    Container(width: 1, height: 50, color: Colors.white24),
+                    _buildStatColumn(
+                      'Sessions Missed',
+                      '${_totalSessionsHeld - _sessionsAttended}',
+                      Icons.cancel,
+                      Colors.red,
                     ),
-                  );
-                },
-              ),
+                    Container(width: 1, height: 50, color: Colors.white24),
+                    _buildStatColumn(
+                      'Total Events',
+                      '${_eventHistory.length}',
+                      Icons.event,
+                      Colors.orange,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
 
-              // Attendance list
+          const SizedBox(height: 24),
+
+          // Quick stats cards
+          Row(
+            children: [
               Expanded(
-                child: StreamBuilder<QuerySnapshot>(
-                  stream: FirebaseFirestore.instance
-                      .collection('attendance')
-                      .where('studentId', isEqualTo: studentId)
-                      .where(
-                        'markedAt',
-                        isGreaterThanOrEqualTo: Timestamp.fromDate(
-                          _filterStartDate,
-                        ),
-                      )
-                      .orderBy('markedAt', descending: true)
-                      .snapshots(),
-                  builder: (context, snapshot) {
-                    if (snapshot.hasError) {
-                      return Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.error_outline,
-                              size: 60,
-                              color: Colors.red[300],
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              'Error loading attendance',
-                              style: TextStyle(
-                                fontSize: 18,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }
-
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return Center(
-                        child: CircularProgressIndicator(
-                          color: Colors.blue[700],
-                        ),
-                      );
-                    }
-
-                    final records = snapshot.data!.docs
-                        .map((doc) => Attendance.fromFirestore(doc))
-                        .toList();
-
-                    if (records.isEmpty) {
-                      return Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.history,
-                              size: 80,
-                              color: Colors.grey[300],
-                            ),
-                            const SizedBox(height: 20),
-                            Text(
-                              'No attendance records',
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Your attendance history will appear here',
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Colors.grey[500],
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }
-
-                    // Group records by date
-                    final groupedRecords = <String, List<Attendance>>{};
-                    for (var record in records) {
-                      final dateKey = DateFormat(
-                        'yyyy-MM-dd',
-                      ).format(record.markedAt);
-                      if (!groupedRecords.containsKey(dateKey)) {
-                        groupedRecords[dateKey] = [];
-                      }
-                      groupedRecords[dateKey]!.add(record);
-                    }
-
-                    return RefreshIndicator(
-                      onRefresh: () async {
-                        await Future.delayed(const Duration(milliseconds: 500));
-                      },
-                      child: ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        itemCount: groupedRecords.length,
-                        itemBuilder: (context, index) {
-                          final dateKey = groupedRecords.keys.elementAt(index);
-                          final dateRecords = groupedRecords[dateKey]!;
-                          final date = DateTime.parse(dateKey);
-
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // Date header
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 12,
-                                  horizontal: 4,
-                                ),
-                                child: Text(
-                                  _formatDateHeader(date),
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.grey[700],
-                                  ),
-                                ),
-                              ),
-                              // Records for this date
-                              ...dateRecords.map(
-                                (record) => _AttendanceCard(record: record),
-                              ),
-                            ],
-                          );
-                        },
-                      ),
-                    );
-                  },
+                child: _buildQuickStatCard(
+                  'Attendance Rate',
+                  _overallPercentage >= 80
+                      ? 'Excellent'
+                      : _overallPercentage >= 60
+                      ? 'Good'
+                      : 'Needs Improvement',
+                  _getPercentageColor(_overallPercentage),
+                  Icons.trending_up,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildQuickStatCard(
+                  'Total Subjects',
+                  '${_subjectStats.length}',
+                  Colors.purple,
+                  Icons.library_books,
                 ),
               ),
             ],
-          );
-        },
+          ),
+        ],
       ),
     );
   }
 
-  String _formatDateHeader(DateTime date) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final yesterday = today.subtract(const Duration(days: 1));
-    final dateOnly = DateTime(date.year, date.month, date.day);
-
-    if (dateOnly == today) {
-      return 'Today';
-    } else if (dateOnly == yesterday) {
-      return 'Yesterday';
-    } else {
-      return DateFormat('EEEE, MMMM d, y').format(date);
-    }
-  }
-}
-
-class _FilterChip extends StatelessWidget {
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _FilterChip({
-    Key? key,
-    required this.label,
-    required this.isSelected,
-    required this.onTap,
-  }) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? Colors.white : Colors.white.withOpacity(0.2),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: Colors.white.withOpacity(isSelected ? 1 : 0.3),
-            width: 1,
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.blue[700] : Colors.white,
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-            fontSize: 14,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _StatItem extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-
-  const _StatItem({
-    Key? key,
-    required this.icon,
-    required this.label,
-    required this.value,
-  }) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildStatColumn(
+    String label,
+    String value,
+    IconData icon,
+    Color iconColor,
+  ) {
     return Column(
       children: [
-        Icon(icon, color: Colors.white, size: 32),
+        Icon(icon, color: iconColor, size: 24),
         const SizedBox(height: 8),
         Text(
           value,
           style: const TextStyle(
             color: Colors.white,
-            fontSize: 28,
+            fontSize: 20,
             fontWeight: FontWeight.bold,
           ),
         ),
-        const SizedBox(height: 4),
         Text(
           label,
-          style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 12),
+          style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 11),
+          textAlign: TextAlign.center,
         ),
       ],
     );
   }
-}
 
-class _AttendanceCard extends StatelessWidget {
-  final Attendance record;
+  Widget _buildQuickStatCard(
+    String title,
+    String value,
+    Color color,
+    IconData icon,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: color, size: 20),
+          ),
+          const SizedBox(height: 12),
+          Text(title, style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: TextStyle(
+              color: color,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-  const _AttendanceCard({Key? key, required this.record}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
+  Widget _buildSubjectTab() {
+    if (_subjectStats.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Icon
-            Container(
-              width: 50,
-              height: 50,
-              decoration: BoxDecoration(
-                color: Colors.green[50],
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(
-                Icons.check_circle,
-                color: Colors.green[700],
-                size: 30,
-              ),
-            ),
-            const SizedBox(width: 16),
-
-            // Content
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    record.subjectName,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Class ID: ${record.classId}',
-                    style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.access_time,
-                        size: 14,
-                        color: Colors.grey[500],
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        DateFormat('h:mm a').format(record.markedAt),
-                        style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-
-            // Status badge
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.green,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: const Text(
-                'Present',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                ),
-              ),
+            Icon(Icons.library_books, size: 80, color: Colors.grey[300]),
+            const SizedBox(height: 16),
+            Text(
+              'No subjects found',
+              style: TextStyle(fontSize: 18, color: Colors.grey[600]),
             ),
           ],
         ),
-      ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _subjectStats.length,
+      itemBuilder: (context, index) {
+        final subject = _subjectStats.keys.elementAt(index);
+        final stats = _subjectStats[subject]!;
+        final attended = stats['attended'] ?? 0;
+        final total = stats['total'] ?? 0;
+        final percentage = total > 0 ? (attended / total) * 100 : 0.0;
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: _getPercentageColor(percentage).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        Icons.book,
+                        color: _getPercentageColor(percentage),
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            subject,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            '$attended of $total sessions attended',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Text(
+                      '${percentage.toStringAsFixed(0)}%',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: _getPercentageColor(percentage),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: LinearProgressIndicator(
+                    value: percentage / 100,
+                    minHeight: 8,
+                    backgroundColor: Colors.grey[200],
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      _getPercentageColor(percentage),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildHistoryTab() {
+    if (_eventHistory.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.history, size: 80, color: Colors.grey[300]),
+            const SizedBox(height: 16),
+            Text(
+              'No event history',
+              style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _eventHistory.length,
+      itemBuilder: (context, index) {
+        final event = _eventHistory[index];
+        final date = event['date'] as DateTime;
+        final sessions = event['sessions'] as List<Map<String, dynamic>>;
+        final attended = event['attended'] as int;
+        final total = event['total'] as int;
+        final percentage = total > 0 ? (attended / total) * 100 : 0.0;
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Theme(
+            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              tilePadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 8,
+              ),
+              childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              leading: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: _getPercentageColor(percentage).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  percentage == 100
+                      ? Icons.check_circle
+                      : percentage > 0
+                      ? Icons.remove_circle
+                      : Icons.cancel,
+                  color: _getPercentageColor(percentage),
+                  size: 24,
+                ),
+              ),
+              title: Text(
+                DateFormat('EEEE, MMMM d, yyyy').format(date),
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              subtitle: Text(
+                '$attended of $total sessions • ${percentage.toStringAsFixed(0)}%',
+                style: TextStyle(color: Colors.grey[600]),
+              ),
+              children: sessions.map((session) {
+                final isAttended = session['attended'] as bool;
+                return Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Row(
+                    children: [
+                      Icon(
+                        isAttended ? Icons.check_circle : Icons.cancel,
+                        color: isAttended ? Colors.green : Colors.red,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              session['subjectName'] ?? 'Unknown',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            Text(
+                              session['teacherName'] ?? '',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isAttended ? Colors.green[50] : Colors.red[50],
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          isAttended ? 'Present' : 'Absent',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: isAttended
+                                ? Colors.green[700]
+                                : Colors.red[700],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        );
+      },
     );
   }
 }

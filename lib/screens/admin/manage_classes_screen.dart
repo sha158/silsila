@@ -47,6 +47,7 @@ class _ManageClassesScreenState extends State<ManageClassesScreen>
       }).toList();
 
       final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
 
       setState(() {
         _activeClasses = classes.where((c) {
@@ -62,7 +63,9 @@ class _ManageClassesScreenState extends State<ManageClassesScreen>
             } else {
               return true;
             }
-            return date.isAfter(now);
+            // Check if the class end date is today or in the future
+            final endDay = DateTime(date.year, date.month, date.day);
+            return endDay.isAfter(today) || endDay.isAtSameMomentAs(today);
           } catch (e) {
             return true;
           }
@@ -81,7 +84,9 @@ class _ManageClassesScreenState extends State<ManageClassesScreen>
             } else {
               return false;
             }
-            return date.isBefore(now);
+            // Check if the class end date is before today
+            final endDay = DateTime(date.year, date.month, date.day);
+            return endDay.isBefore(today);
           } catch (e) {
             return false;
           }
@@ -271,9 +276,9 @@ class _ManageClassesScreenState extends State<ManageClassesScreen>
                   if (classData['teacherName'] != null &&
                       classData['teacherName'].toString().isNotEmpty)
                     Text('Teacher: ${classData['teacherName']}'),
-                  Text('Schedule: ${classData['scheduledDate'] ?? 'N/A'}'),
+                  Text('Date: ${_formatDate(classData['passwordActiveFrom'])}'),
                   Text(
-                    '${_formatDate(classData['passwordActiveFrom'])} - ${_formatDate(classData['passwordActiveUntil'])}',
+                    'Time: ${classData['startTime'] ?? 'N/A'} - ${classData['endTime'] ?? 'N/A'}',
                   ),
                 ],
               ),

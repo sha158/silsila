@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../utils/constants.dart';
+import '../utils/responsive.dart';
 import 'student/student_login_screen.dart';
 import 'student/student_home_screen.dart';
 import 'admin/admin_login_screen.dart';
@@ -66,6 +67,26 @@ class _LaunchScreenState extends State<LaunchScreen>
 
   @override
   Widget build(BuildContext context) {
+    final bool isDesktop = Responsive.isDesktop(context);
+    final double logoWidth = Responsive.value(
+      context,
+      mobile: 300,
+      tablet: 350,
+      desktop: 400,
+    );
+    final double logoHeight = Responsive.value(
+      context,
+      mobile: 225,
+      tablet: 262,
+      desktop: 300,
+    );
+    final double maxContentWidth = Responsive.value(
+      context,
+      mobile: double.infinity,
+      tablet: 500,
+      desktop: 550,
+    );
+
     return Scaffold(
       backgroundColor: Colors.blue.shade700,
       body: Container(
@@ -81,125 +102,174 @@ class _LaunchScreenState extends State<LaunchScreen>
             opacity: _fadeAnimation,
             child: Center(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24.0),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    // App Icon/Logo - Arabic Calligraphy
-                    SizedBox(
-                      width: 400,
-                      height: 300,
-                      child: Image.asset(
-                        'assets/arabic_calligraphy_logo_1764850116827-removebg-preview.png',
-                        fit: BoxFit.contain,
-                      ),
-                    ),
-                    const SizedBox(height: 32),
-
-                    // App Title
-                    const Text(
-                      AppConstants.appName,
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    // const SizedBox(height: 8),
-                    const Text(
-                      'سلسلة الهدى والنور',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white70,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Chain of Guidance and Light',
-                      style: TextStyle(fontSize: 16, color: Colors.white70),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 60),
-
-                    if (_isChecking) ...[
-                      const CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'Loading...',
-                        style: TextStyle(color: Colors.white70),
-                      ),
-                    ],
-
-                    if (!_isChecking) ...[
-                      // Student Login Button
-                      SizedBox(
-                        width: double.infinity,
-                        height: 56,
-                        child: ElevatedButton(
-                          onPressed: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (context) =>
-                                    const StudentLoginScreen(),
-                              ),
-                            );
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            foregroundColor: AppColors.primary,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          ),
-                          child: const Text(
-                            'Student Login',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
+                padding: EdgeInsets.symmetric(
+                  horizontal: Responsive.value(
+                    context,
+                    mobile: 24.0,
+                    tablet: 48.0,
+                    desktop: 64.0,
+                  ),
+                  vertical: 24.0,
+                ),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: maxContentWidth),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        // App Icon/Logo - Arabic Calligraphy
+                        SizedBox(
+                          width: logoWidth,
+                          height: logoHeight,
+                          child: Image.asset(
+                            'assets/arabic_calligraphy_logo_1764850116827-removebg-preview.png',
+                            fit: BoxFit.contain,
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Admin Login Button
-                      SizedBox(
-                        width: double.infinity,
-                        height: 56,
-                        child: OutlinedButton(
-                          onPressed: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (context) => const AdminLoginScreen(),
-                              ),
-                            );
-                          },
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.white,
-                            side: const BorderSide(
-                              color: Colors.white,
-                              width: 2,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          ),
-                          child: const Text(
-                            'Admin Login',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
+                        SizedBox(
+                          height: Responsive.value(
+                            context,
+                            mobile: 32,
+                            tablet: 40,
+                            desktop: 48,
                           ),
                         ),
-                      ),
-                    ],
-                  ],
+
+                        // App Title
+                        Text(
+                          AppConstants.appName,
+                          style: TextStyle(
+                            fontSize: Responsive.fontSize(context, 28),
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        Text(
+                          'سلسلة الهدى والنور',
+                          style: TextStyle(
+                            fontSize: Responsive.fontSize(context, 24),
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white70,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Chain of Guidance and Light',
+                          style: TextStyle(
+                            fontSize: Responsive.fontSize(context, 16),
+                            color: Colors.white70,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        SizedBox(
+                          height: Responsive.value(
+                            context,
+                            mobile: 60,
+                            tablet: 70,
+                            desktop: 80,
+                          ),
+                        ),
+
+                        if (_isChecking) ...[
+                          const CircularProgressIndicator(
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Loading...',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: Responsive.fontSize(context, 14),
+                            ),
+                          ),
+                        ],
+
+                        if (!_isChecking) ...[
+                          // Student Login Button
+                          SizedBox(
+                            width: double.infinity,
+                            height: Responsive.value(
+                              context,
+                              mobile: 56,
+                              tablet: 60,
+                              desktop: 64,
+                            ),
+                            child: ElevatedButton(
+                              onPressed: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (context) =>
+                                        const StudentLoginScreen(),
+                                  ),
+                                );
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.white,
+                                foregroundColor: AppColors.primary,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                              ),
+                              child: Text(
+                                'Student Login',
+                                style: TextStyle(
+                                  fontSize: Responsive.fontSize(context, 18),
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                          SizedBox(
+                            height: Responsive.value(
+                              context,
+                              mobile: 16,
+                              tablet: 20,
+                              desktop: 24,
+                            ),
+                          ),
+
+                          // Admin Login Button
+                          SizedBox(
+                            width: double.infinity,
+                            height: Responsive.value(
+                              context,
+                              mobile: 56,
+                              tablet: 60,
+                              desktop: 64,
+                            ),
+                            child: OutlinedButton(
+                              onPressed: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (context) => const AdminLoginScreen(),
+                                  ),
+                                );
+                              },
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.white,
+                                side: const BorderSide(
+                                  color: Colors.white,
+                                  width: 2,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                              ),
+                              child: Text(
+                                'Admin Login',
+                                style: TextStyle(
+                                  fontSize: Responsive.fontSize(context, 18),
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),

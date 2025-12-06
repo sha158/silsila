@@ -44,9 +44,11 @@ class AttendanceService {
 
       // 3. Find active class with matching password
       DateTime now = DateTime.now();
+      DateTime today = DateTime(now.year, now.month, now.day);
+
+      // Get all classes (not just isPasswordActive=true to be more flexible)
       QuerySnapshot activeClasses = await _firestore
           .collection('classes')
-          .where('isPasswordActive', isEqualTo: true)
           .get();
 
       DocumentSnapshot? matchingClass;
@@ -55,13 +57,28 @@ class AttendanceService {
 
         // Check if password matches
         if (classData['password'] == enteredPassword) {
-          // Check if password is active from time and not expired
+          // Check if password is active (time-based comparison for today)
           final activeFrom = (classData['passwordActiveFrom'] as Timestamp)
-              .toDate();
+              .toDate()
+              .toLocal();
           final activeUntil = (classData['passwordActiveUntil'] as Timestamp)
-              .toDate();
+              .toDate()
+              .toLocal();
 
-          if (now.isAfter(activeFrom) && now.isBefore(activeUntil)) {
+          // Check if the class is scheduled for today
+          final activeFromDay = DateTime(activeFrom.year, activeFrom.month, activeFrom.day);
+          final activeUntilDay = DateTime(activeUntil.year, activeUntil.month, activeUntil.day);
+
+          // Check if today matches the scheduled date
+          bool isScheduledToday = today.isAtSameMomentAs(activeFromDay) &&
+                                  today.isAtSameMomentAs(activeUntilDay);
+
+          // Check if current time is within the active time range
+          bool isActiveNow = now.isAfter(activeFrom) && now.isBefore(activeUntil);
+
+          print('Attendance check - Password: ${classData['password']}, Entered: $enteredPassword, ScheduledToday: $isScheduledToday, ActiveNow: $isActiveNow, From: $activeFrom, Until: $activeUntil, Now: $now');
+
+          if (isScheduledToday && isActiveNow) {
             matchingClass = doc;
             break;
           }
@@ -172,13 +189,32 @@ class AttendanceService {
 
       final classData = classDoc.data() as Map<String, dynamic>;
 
-      // 4. Verify class is still active
+      // 4. Verify class is active right now
+      final activeFrom = (classData['passwordActiveFrom'] as Timestamp)
+          .toDate()
+          .toLocal();
       final activeUntil = (classData['passwordActiveUntil'] as Timestamp)
-          .toDate();
+          .toDate()
+          .toLocal();
       final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
 
-      if (now.isAfter(activeUntil)) {
-        return AttendanceResult(success: false, message: 'QR code has expired');
+      // Check if the class is scheduled for today
+      final activeFromDay = DateTime(activeFrom.year, activeFrom.month, activeFrom.day);
+      final activeUntilDay = DateTime(activeUntil.year, activeUntil.month, activeUntil.day);
+
+      bool isScheduledToday = today.isAtSameMomentAs(activeFromDay) &&
+                              today.isAtSameMomentAs(activeUntilDay);
+
+      // Check if current time is within the active time range
+      bool isActiveNow = now.isAfter(activeFrom) && now.isBefore(activeUntil);
+
+      if (!isScheduledToday) {
+        return AttendanceResult(success: false, message: 'Class not scheduled for today');
+      }
+
+      if (!isActiveNow) {
+        return AttendanceResult(success: false, message: 'Class is not active right now');
       }
 
       // 5. Check duplicate attendance

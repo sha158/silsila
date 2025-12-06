@@ -8,11 +8,7 @@ class AddClassScreen extends StatefulWidget {
   final String? classId;
   final Map<String, dynamic>? classData;
 
-  const AddClassScreen({
-    super.key,
-    this.classId,
-    this.classData,
-  });
+  const AddClassScreen({super.key, this.classId, this.classData});
 
   @override
   State<AddClassScreen> createState() => _AddClassScreenState();
@@ -21,20 +17,26 @@ class AddClassScreen extends StatefulWidget {
 class _AddClassScreenState extends State<AddClassScreen> {
   final _formKey = GlobalKey<FormState>();
   final _firebaseService = FirebaseService();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  final _nameController = TextEditingController();
-  final _teacherController = TextEditingController();
   final _passwordController = TextEditingController();
   final _scheduleController = TextEditingController();
   final _locationController = TextEditingController();
 
-  DateTime? _startDate;
-  DateTime? _endDate;
+  String? _selectedSubject;
+  String? _selectedTeacher;
+  List<String> _subjects = [];
+  List<String> _teachers = [];
+  bool _isLoadingData = true;
+
+  TimeOfDay? _startTime;
+  TimeOfDay? _endTime;
   bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
+    _loadSubjectsAndTeachers();
     if (widget.classData != null) {
       _loadClassData();
     } else {
@@ -42,33 +44,81 @@ class _AddClassScreenState extends State<AddClassScreen> {
     }
   }
 
+  Future<void> _loadSubjectsAndTeachers() async {
+    try {
+      final subjectsSnapshot = await _firestore
+          .collection('subjects')
+          .orderBy('name')
+          .get();
+      final teachersSnapshot = await _firestore
+          .collection('teachers')
+          .orderBy('name')
+          .get();
+
+      setState(() {
+        _subjects = subjectsSnapshot.docs
+            .map((doc) => doc['name'] as String)
+            .toList();
+        _teachers = teachersSnapshot.docs
+            .map((doc) => doc['name'] as String)
+            .toList();
+        _isLoadingData = false;
+      });
+    } catch (e) {
+      setState(() => _isLoadingData = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading data: $e'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    }
+  }
+
   void _loadClassData() {
     final data = widget.classData!;
-    _nameController.text = data['subjectName'] ?? data['name'] ?? '';
-    _teacherController.text = data['teacherName'] ?? data['teacher'] ?? '';
+    _selectedSubject = data['subjectName'] ?? data['name'];
+    _selectedTeacher = data['teacherName'] ?? data['teacher'];
     _passwordController.text = data['password'] ?? '';
     _scheduleController.text = data['scheduledDate'] ?? data['schedule'] ?? '';
     _locationController.text = data['location'] ?? '';
 
-    if (data['startDate'] != null) {
+    // Load start and end times from passwordActiveFrom/Until
+    if (data['passwordActiveFrom'] != null) {
       try {
-        if (data['startDate'] is DateTime) {
-          _startDate = data['startDate'];
-        } else if (data['startDate'].toDate != null) {
-          _startDate = data['startDate'].toDate();
+        DateTime startDateTime;
+        if (data['passwordActiveFrom'] is DateTime) {
+          startDateTime = data['passwordActiveFrom'];
+        } else if (data['passwordActiveFrom'].toDate != null) {
+          startDateTime = data['passwordActiveFrom'].toDate();
+        } else {
+          return;
         }
+        _startTime = TimeOfDay(
+          hour: startDateTime.hour,
+          minute: startDateTime.minute,
+        );
       } catch (e) {
         // Ignore error
       }
     }
 
-    if (data['endDate'] != null) {
+    if (data['passwordActiveUntil'] != null) {
       try {
-        if (data['endDate'] is DateTime) {
-          _endDate = data['endDate'];
-        } else if (data['endDate'].toDate != null) {
-          _endDate = data['endDate'].toDate();
+        DateTime endDateTime;
+        if (data['passwordActiveUntil'] is DateTime) {
+          endDateTime = data['passwordActiveUntil'];
+        } else if (data['passwordActiveUntil'].toDate != null) {
+          endDateTime = data['passwordActiveUntil'].toDate();
+        } else {
+          return;
         }
+        _endTime = TimeOfDay(
+          hour: endDateTime.hour,
+          minute: endDateTime.minute,
+        );
       } catch (e) {
         // Ignore error
       }
@@ -77,8 +127,6 @@ class _AddClassScreenState extends State<AddClassScreen> {
 
   @override
   void dispose() {
-    _nameController.dispose();
-    _teacherController.dispose();
     _passwordController.dispose();
     _scheduleController.dispose();
     _locationController.dispose();
@@ -97,24 +145,22 @@ class _AddClassScreenState extends State<AddClassScreen> {
     _passwordController.text = password;
   }
 
-  Future<void> _selectDate(BuildContext context, bool isStartDate) async {
-    final initialDate = isStartDate
-        ? _startDate ?? DateTime.now()
-        : _endDate ?? DateTime.now().add(const Duration(days: 30));
+  Future<void> _selectTime(BuildContext context, bool isStartTime) async {
+    final initialTime = isStartTime
+        ? _startTime ?? TimeOfDay.now()
+        : _endTime ?? const TimeOfDay(hour: 23, minute: 59);
 
-    final pickedDate = await showDatePicker(
+    final pickedTime = await showTimePicker(
       context: context,
-      initialDate: initialDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2030),
+      initialTime: initialTime,
     );
 
-    if (pickedDate != null) {
+    if (pickedTime != null) {
       setState(() {
-        if (isStartDate) {
-          _startDate = pickedDate;
+        if (isStartTime) {
+          _startTime = pickedTime;
         } else {
-          _endDate = pickedDate;
+          _endTime = pickedTime;
         }
       });
     }
@@ -123,20 +169,41 @@ class _AddClassScreenState extends State<AddClassScreen> {
   Future<void> _saveClass() async {
     if (!_formKey.currentState!.validate()) return;
 
-    if (_startDate == null || _endDate == null) {
+    if (_startTime == null || _endTime == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please select start and end dates'),
+          content: Text('Please select start and end times'),
           backgroundColor: Colors.red,
         ),
       );
       return;
     }
 
-    if (_endDate!.isBefore(_startDate!)) {
+    // Convert TimeOfDay to DateTime for today
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    final startDateTime = DateTime(
+      today.year,
+      today.month,
+      today.day,
+      _startTime!.hour,
+      _startTime!.minute,
+    );
+
+    final endDateTime = DateTime(
+      today.year,
+      today.month,
+      today.day,
+      _endTime!.hour,
+      _endTime!.minute,
+    );
+
+    if (endDateTime.isBefore(startDateTime) ||
+        endDateTime.isAtSameMomentAs(startDateTime)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('End date must be after start date'),
+          content: Text('End time must be after start time'),
           backgroundColor: Colors.red,
         ),
       );
@@ -146,21 +213,22 @@ class _AddClassScreenState extends State<AddClassScreen> {
     setState(() => _isLoading = true);
 
     try {
+      // Format times for display
+      final startTimeStr = _startTime!.format(context);
+      final endTimeStr = _endTime!.format(context);
+
       if (widget.classId != null) {
         // Update existing class
-        await _firebaseService.updateClass(
-          widget.classId!,
-          {
-            'subjectName': _nameController.text.trim(),
-            'teacherName': _teacherController.text.trim(),
-            'scheduledDate': _scheduleController.text.trim(),
-            'startTime': '', // Not used in this form
-            'endTime': '', // Not used in this form
-            'password': _passwordController.text.trim(),
-            'passwordActiveFrom': Timestamp.fromDate(_startDate!),
-            'passwordActiveUntil': Timestamp.fromDate(_endDate!),
-          },
-        );
+        await _firebaseService.updateClass(widget.classId!, {
+          'subjectName': _selectedSubject!,
+          'teacherName': _selectedTeacher!,
+          'scheduledDate': _scheduleController.text.trim(),
+          'startTime': startTimeStr,
+          'endTime': endTimeStr,
+          'password': _passwordController.text.trim(),
+          'passwordActiveFrom': Timestamp.fromDate(startDateTime),
+          'passwordActiveUntil': Timestamp.fromDate(endDateTime),
+        });
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -175,17 +243,18 @@ class _AddClassScreenState extends State<AddClassScreen> {
         // Add new class
         final classModel = ClassModel(
           classId: '', // Will be set by Firestore
-          subjectName: _nameController.text.trim(),
-          teacherName: _teacherController.text.trim(),
+          subjectName: _selectedSubject!,
+          teacherName: _selectedTeacher!,
           scheduledDate: _scheduleController.text.trim(),
-          startTime: '', // Not used in this form
-          endTime: '', // Not used in this form
+          startTime: startTimeStr,
+          endTime: endTimeStr,
           password: _passwordController.text.trim(),
-          passwordActiveFrom: _startDate!,
-          passwordActiveUntil: _endDate!,
-          isPasswordActive: DateTime.now().isAfter(_startDate!) && DateTime.now().isBefore(_endDate!),
+          passwordActiveFrom: startDateTime,
+          passwordActiveUntil: endDateTime,
+          isPasswordActive:
+              now.isAfter(startDateTime) && now.isBefore(endDateTime),
           autoGenerate: false,
-          createdAt: DateTime.now(),
+          createdAt: now,
         );
 
         await _firebaseService.addClass(classModel);
@@ -240,10 +309,7 @@ class _AddClassScreenState extends State<AddClassScreen> {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              Colors.blue.shade50,
-              Colors.white,
-            ],
+            colors: [Colors.blue.shade50, Colors.white],
           ),
         ),
         child: SafeArea(
@@ -273,25 +339,45 @@ class _AddClassScreenState extends State<AddClassScreen> {
                             ),
                           ),
                           const SizedBox(height: 20),
-                          TextFormField(
-                            controller: _nameController,
+                          // Subject Dropdown
+                          DropdownButtonFormField<String>(
+                            value: _selectedSubject,
                             decoration: InputDecoration(
-                              labelText: 'Class Name',
-                              prefixIcon: const Icon(Icons.class_),
+                              labelText: 'Subject Name',
+                              prefixIcon: const Icon(Icons.book),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
                               ),
                             ),
+                            items: _subjects.map((subject) {
+                              return DropdownMenuItem(
+                                value: subject,
+                                child: Text(subject),
+                              );
+                            }).toList(),
+                            onChanged: (value) {
+                              setState(() {
+                                _selectedSubject = value;
+                              });
+                            },
                             validator: (value) {
-                              if (value == null || value.trim().isEmpty) {
-                                return 'Please enter class name';
+                              if (value == null || value.isEmpty) {
+                                return 'Please select a subject';
                               }
                               return null;
                             },
+                            hint: _isLoadingData
+                                ? const Text('Loading subjects...')
+                                : _subjects.isEmpty
+                                ? const Text(
+                                    'No subjects available - Add in Subjects & Teachers',
+                                  )
+                                : const Text('Select a subject'),
                           ),
                           const SizedBox(height: 16),
-                          TextFormField(
-                            controller: _teacherController,
+                          // Teacher Dropdown
+                          DropdownButtonFormField<String>(
+                            value: _selectedTeacher,
                             decoration: InputDecoration(
                               labelText: 'Teacher Name',
                               prefixIcon: const Icon(Icons.person),
@@ -299,12 +385,30 @@ class _AddClassScreenState extends State<AddClassScreen> {
                                 borderRadius: BorderRadius.circular(12),
                               ),
                             ),
+                            items: _teachers.map((teacher) {
+                              return DropdownMenuItem(
+                                value: teacher,
+                                child: Text(teacher),
+                              );
+                            }).toList(),
+                            onChanged: (value) {
+                              setState(() {
+                                _selectedTeacher = value;
+                              });
+                            },
                             validator: (value) {
-                              if (value == null || value.trim().isEmpty) {
-                                return 'Please enter teacher name';
+                              if (value == null || value.isEmpty) {
+                                return 'Please select a teacher';
                               }
                               return null;
                             },
+                            hint: _isLoadingData
+                                ? const Text('Loading teachers...')
+                                : _teachers.isEmpty
+                                ? const Text(
+                                    'No teachers available - Add in Subjects & Teachers',
+                                  )
+                                : const Text('Select a teacher'),
                           ),
                           const SizedBox(height: 16),
                           TextFormField(
@@ -333,19 +437,19 @@ class _AddClassScreenState extends State<AddClassScreen> {
                             children: [
                               Expanded(
                                 child: InkWell(
-                                  onTap: () => _selectDate(context, true),
+                                  onTap: () => _selectTime(context, true),
                                   child: InputDecorator(
                                     decoration: InputDecoration(
-                                      labelText: 'Start Date',
-                                      prefixIcon: const Icon(Icons.calendar_today),
+                                      labelText: 'Start Time',
+                                      prefixIcon: const Icon(Icons.access_time),
                                       border: OutlineInputBorder(
                                         borderRadius: BorderRadius.circular(12),
                                       ),
                                     ),
                                     child: Text(
-                                      _startDate != null
-                                          ? '${_startDate!.day}/${_startDate!.month}/${_startDate!.year}'
-                                          : 'Select date',
+                                      _startTime != null
+                                          ? _startTime!.format(context)
+                                          : 'Select time',
                                     ),
                                   ),
                                 ),
@@ -353,24 +457,38 @@ class _AddClassScreenState extends State<AddClassScreen> {
                               const SizedBox(width: 16),
                               Expanded(
                                 child: InkWell(
-                                  onTap: () => _selectDate(context, false),
+                                  onTap: () => _selectTime(context, false),
                                   child: InputDecorator(
                                     decoration: InputDecoration(
-                                      labelText: 'End Date',
-                                      prefixIcon: const Icon(Icons.calendar_today),
+                                      labelText: 'End Time',
+                                      prefixIcon: const Icon(Icons.access_time),
                                       border: OutlineInputBorder(
                                         borderRadius: BorderRadius.circular(12),
                                       ),
                                     ),
                                     child: Text(
-                                      _endDate != null
-                                          ? '${_endDate!.day}/${_endDate!.month}/${_endDate!.year}'
-                                          : 'Select date',
+                                      _endTime != null
+                                          ? _endTime!.format(context)
+                                          : 'Select time',
                                     ),
                                   ),
                                 ),
                               ),
                             ],
+                          ),
+                          const SizedBox(height: 8),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 4.0,
+                            ),
+                            child: Text(
+                              'Active today: ${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade600,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
                           ),
                           const SizedBox(height: 16),
                           TextFormField(

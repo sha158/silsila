@@ -14,6 +14,7 @@ class _ViewAttendanceScreenState extends State<ViewAttendanceScreen> {
   List<Map<String, dynamic>> _allAttendance = [];
   List<Map<String, dynamic>> _filteredAttendance = [];
   List<Map<String, dynamic>> _classes = [];
+  Map<String, Map<String, dynamic>> _students = {}; // Add students map
 
   String? _selectedClassId;
   DateTime? _selectedDate;
@@ -29,25 +30,36 @@ class _ViewAttendanceScreenState extends State<ViewAttendanceScreen> {
     setState(() => _isLoading = true);
 
     try {
-      final classesSnapshot = await _firebaseService.getAllClasses().first;
-      final attendanceSnapshot = await _firebaseService.getAllAttendance().first;
+      // Fetch all data in parallel
+      final results = await Future.wait([
+        _firebaseService.getAllClasses().first,
+        _firebaseService.getAllAttendance().first,
+        _firebaseService.getAllStudents().first,
+      ]);
 
+      final classesSnapshot = results[0];
+      final attendanceSnapshot = results[1];
+      final studentsSnapshot = results[2];
+
+      // Map classes
       final classes = classesSnapshot.docs.map((doc) {
-        return {
-          'id': doc.id,
-          ...doc.data() as Map<String, dynamic>,
-        };
+        return {'id': doc.id, ...doc.data() as Map<String, dynamic>};
       }).toList();
 
+      // Map students to a lookup dictionary
+      final studentsMap = <String, Map<String, dynamic>>{};
+      for (var doc in studentsSnapshot.docs) {
+        studentsMap[doc.id] = doc.data() as Map<String, dynamic>;
+      }
+
+      // Map attendance
       final attendance = attendanceSnapshot.docs.map((doc) {
-        return {
-          'id': doc.id,
-          ...doc.data() as Map<String, dynamic>,
-        };
+        return {'id': doc.id, ...doc.data() as Map<String, dynamic>};
       }).toList();
 
       setState(() {
         _classes = classes;
+        _students = studentsMap;
         _allAttendance = attendance;
         _filteredAttendance = attendance;
         _isLoading = false;
@@ -68,24 +80,26 @@ class _ViewAttendanceScreenState extends State<ViewAttendanceScreen> {
   void _applyFilters() {
     setState(() {
       _filteredAttendance = _allAttendance.where((attendance) {
-        bool matchesClass = _selectedClassId == null ||
+        bool matchesClass =
+            _selectedClassId == null ||
             attendance['classId'] == _selectedClassId;
 
         bool matchesDate = _selectedDate == null;
         if (!matchesDate && _selectedDate != null) {
           try {
             DateTime attendanceDate;
-            if (attendance['timestamp'] is DateTime) {
-              attendanceDate = attendance['timestamp'];
-            } else if (attendance['timestamp'].toDate != null) {
-              attendanceDate = attendance['timestamp'].toDate();
+            if (attendance['markedAt'] is DateTime) {
+              attendanceDate = attendance['markedAt'];
+            } else if (attendance['markedAt']?.toDate != null) {
+              attendanceDate = attendance['markedAt'].toDate();
             } else {
               return false;
             }
 
-            matchesDate = attendanceDate.year == _selectedDate!.year &&
-                         attendanceDate.month == _selectedDate!.month &&
-                         attendanceDate.day == _selectedDate!.day;
+            matchesDate =
+                attendanceDate.year == _selectedDate!.year &&
+                attendanceDate.month == _selectedDate!.month &&
+                attendanceDate.day == _selectedDate!.day;
           } catch (e) {
             return false;
           }
@@ -99,16 +113,16 @@ class _ViewAttendanceScreenState extends State<ViewAttendanceScreen> {
           DateTime dateA;
           DateTime dateB;
 
-          if (a['timestamp'] is DateTime) {
-            dateA = a['timestamp'];
+          if (a['markedAt'] is DateTime) {
+            dateA = a['markedAt'];
           } else {
-            dateA = a['timestamp'].toDate();
+            dateA = a['markedAt'].toDate();
           }
 
-          if (b['timestamp'] is DateTime) {
-            dateB = b['timestamp'];
+          if (b['markedAt'] is DateTime) {
+            dateB = b['markedAt'];
           } else {
-            dateB = b['timestamp'].toDate();
+            dateB = b['markedAt'].toDate();
           }
 
           return dateB.compareTo(dateA);
@@ -152,6 +166,12 @@ class _ViewAttendanceScreenState extends State<ViewAttendanceScreen> {
     return classData['subjectName'] ?? 'Unknown Class';
   }
 
+  String _getStudentName(String? studentId) {
+    if (studentId == null) return 'Unknown Student';
+    final studentData = _students[studentId];
+    return studentData?['name'] ?? 'Unknown Student';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -174,10 +194,7 @@ class _ViewAttendanceScreenState extends State<ViewAttendanceScreen> {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              Colors.blue.shade50,
-              Colors.white,
-            ],
+            colors: [Colors.blue.shade50, Colors.white],
           ),
         ),
         child: Column(
@@ -215,10 +232,12 @@ class _ViewAttendanceScreenState extends State<ViewAttendanceScreen> {
                           value: null,
                           child: Text('All Classes'),
                         ),
-                        ..._classes.map((c) => DropdownMenuItem(
-                              value: c['id'],
-                              child: Text(c['subjectName'] ?? 'Unknown'),
-                            )),
+                        ..._classes.map(
+                          (c) => DropdownMenuItem(
+                            value: c['id'],
+                            child: Text(c['subjectName'] ?? 'Unknown'),
+                          ),
+                        ),
                       ],
                       onChanged: (value) {
                         setState(() {
@@ -272,85 +291,85 @@ class _ViewAttendanceScreenState extends State<ViewAttendanceScreen> {
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
                   : _filteredAttendance.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.checklist,
-                                size: 80,
-                                color: Colors.grey.shade400,
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                'No attendance records found',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  color: Colors.grey.shade600,
-                                ),
-                              ),
-                            ],
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.checklist,
+                            size: 80,
+                            color: Colors.grey.shade400,
                           ),
-                        )
-                      : RefreshIndicator(
-                          onRefresh: _loadData,
-                          child: ListView.builder(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            itemCount: _filteredAttendance.length,
-                            itemBuilder: (context, index) {
-                              final record = _filteredAttendance[index];
-                              return Card(
-                                elevation: 2,
-                                margin: const EdgeInsets.only(bottom: 12),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: ListTile(
-                                  contentPadding: const EdgeInsets.all(16),
-                                  leading: CircleAvatar(
-                                    backgroundColor: Colors.blue.shade700,
-                                    child: const Icon(
-                                      Icons.check,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                  title: Text(
-                                    record['studentName'] ?? 'Unknown Student',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                                  subtitle: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      const SizedBox(height: 4),
-                                      Text(_getClassName(record['classId'])),
-                                      Text(_formatDateTime(record['timestamp'])),
-                                    ],
-                                  ),
-                                  trailing: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 6,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.green.shade100,
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    child: Text(
-                                      'Present',
-                                      style: TextStyle(
-                                        color: Colors.green.shade900,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              );
-                            },
+                          const SizedBox(height: 16),
+                          Text(
+                            'No attendance records found',
+                            style: TextStyle(
+                              fontSize: 18,
+                              color: Colors.grey.shade600,
+                            ),
                           ),
-                        ),
+                        ],
+                      ),
+                    )
+                  : RefreshIndicator(
+                      onRefresh: _loadData,
+                      child: ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        itemCount: _filteredAttendance.length,
+                        itemBuilder: (context, index) {
+                          final record = _filteredAttendance[index];
+                          return Card(
+                            elevation: 2,
+                            margin: const EdgeInsets.only(bottom: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: ListTile(
+                              contentPadding: const EdgeInsets.all(16),
+                              leading: CircleAvatar(
+                                backgroundColor: Colors.blue.shade700,
+                                child: const Icon(
+                                  Icons.check,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              title: Text(
+                                _getStudentName(record['studentId']),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const SizedBox(height: 4),
+                                  Text(_getClassName(record['classId'])),
+                                  Text(_formatDateTime(record['markedAt'])),
+                                ],
+                              ),
+                              trailing: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.green.shade100,
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  'Present',
+                                  style: TextStyle(
+                                    color: Colors.green.shade900,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
             ),
           ],
         ),
