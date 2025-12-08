@@ -1026,4 +1026,184 @@ class ExcelService {
       return 'Template download failed: ${e.toString()}';
     }
   }
+  Future<String> exportDailyConsolidatedAttendance(DateTime date) async {
+    try {
+      // 1. Permission Check
+      if (Platform.isAndroid) {
+        if (await Permission.manageExternalStorage.isGranted) {
+          // Granted
+        } else {
+          final manageStatus = await Permission.manageExternalStorage.request();
+          if (!manageStatus.isGranted) {
+            final storageStatus = await Permission.storage.request();
+            if (!storageStatus.isGranted) {
+              return 'Storage permission denied.';
+            }
+          }
+        }
+      }
+
+      // 2. Fetch All Students (Active ones preferably, or all)
+      final studentsSnapshot = await _firestore.collection('students').get();
+      if (studentsSnapshot.docs.isEmpty) {
+        return 'No students found in the database.';
+      }
+
+      // Sort students by name or ID for better readability
+      final students = studentsSnapshot.docs.map((doc) => doc.data()).toList();
+      students.sort((a, b) =>
+          (a['name'] ?? '').toString().compareTo((b['name'] ?? '').toString()));
+
+      // 3. Fetch Classes for the specific date
+      // Date format in DB seems to be String "YYYY-MM-DD" based on ClassModel?
+      // Or we can construct it if it's consistent.
+      // Let's assume standard ISO or the format used in existing code.
+      // Checking ClassModel... scheduledDate is String.
+      final dateString =
+          "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
+
+      final classesSnapshot = await _firestore
+          .collection('classes')
+          .where('scheduledDate', isEqualTo: dateString)
+          .orderBy('startTime') // Order columns by time
+          .get();
+
+      if (classesSnapshot.docs.isEmpty) {
+        return 'No classes found scheduled for $dateString';
+      }
+
+      final classes = classesSnapshot.docs;
+
+      // 4. Fetch Attendance for these classes
+      final classIds = classes.map((c) => c.id).toList();
+      // Firestore 'whereIn' supports up to 10 items. If > 10 classes, we might need multiple queries.
+      // For now, let's assume < 10 classes/day.
+      // Optimization: Fetch ALL attendance for this day? Or per class?
+      // Since we want ALL students, fetching by classId list is efficient if count is low.
+
+      // Map<ClassId, Map<StudentId, Status>>
+      final Map<String, Map<String, String>> attendanceMap = {};
+
+      // Initialize map entries for each class
+      for (var cls in classes) {
+        attendanceMap[cls.id] = {};
+      }
+
+      // Fetch attendance in batches if needed, or loop if class count is small
+      for (var cls in classes) {
+        final attSnap = await _firestore
+            .collection('attendance')
+            .where('classId', isEqualTo: cls.id)
+            .get();
+
+        for (var doc in attSnap.docs) {
+          final data = doc.data();
+          final sId = data['studentId'] as String?;
+          final status = data['status'] as String? ?? 'Present';
+          if (sId != null) {
+            attendanceMap[cls.id]![sId] = status;
+          }
+        }
+      }
+
+      // 5. Build Excel
+      final excel = Excel.createExcel();
+      final sheet = excel['Daily Report'];
+      
+      // Delete default sheet if exists/renamed
+      // if (excel.tables.keys.contains('Sheet1')) {
+      //    excel.delete('Sheet1'); 
+      // }
+      
+      // Header Row
+      List<TextCellValue> headers = [
+        TextCellValue('Student ID'),
+        TextCellValue('Name'),
+        TextCellValue('Phone'),
+      ];
+
+      // Add Class columns
+      for (var cls in classes) {
+        final data = cls.data();
+        final subject = data['subjectName'] ?? 'Class';
+        final time = data['startTime'] ?? '';
+        headers.add(TextCellValue('$subject\n($time)'));
+      }
+      
+      sheet.appendRow(headers);
+
+      // Style Header
+      for (int i = 0; i < headers.length; i++) {
+        final cell = sheet.cell(
+          CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0),
+        );
+        cell.cellStyle = CellStyle(
+          bold: true,
+          backgroundColorHex: ExcelColor.blue,
+          fontColorHex: ExcelColor.white,
+          horizontalAlign: HorizontalAlign.Center,
+          verticalAlign: VerticalAlign.Center,
+        );
+      }
+
+      // Data Rows
+      for (var student in students) {
+        final sId = student['studentId'] as String? ?? '';
+        final sName = student['name'] as String? ?? 'Unknown';
+        final sPhone = student['phoneNumber'] as String? ?? '';
+
+        List<TextCellValue> row = [
+           TextCellValue(sId),
+           TextCellValue(sName),
+           TextCellValue(sPhone),
+        ];
+
+        // For each class column, check attendance
+        for (var cls in classes) {
+          final status = attendanceMap[cls.id]?[sId];
+          row.add(TextCellValue(status ?? 'Absent')); 
+          // Defaulting to Absent if no record found for a registered student in a scheduled class
+        }
+        
+        sheet.appendRow(row);
+      }
+
+      // Auto-fit (Simple approximation)
+      sheet.setColumnWidth(0, 15); // ID
+      sheet.setColumnWidth(1, 25); // Name
+      sheet.setColumnWidth(2, 15); // Phone
+      for (int i = 3; i < headers.length; i++) {
+        sheet.setColumnWidth(i, 20); // Class Columns
+      }
+
+      // 6. Save File
+      final directory = Platform.isAndroid
+          ? Directory('/storage/emulated/0/Download')
+          : await getApplicationDocumentsDirectory();
+
+      final timestamp = DateTime.now();
+      final fileName = 'Daily_Report_$dateString.xlsx';
+      final filePath = '${directory.path}/$fileName';
+
+      // Ensure unique name
+      String finalPath = filePath;
+      int counter = 1;
+      while (await File(finalPath).exists()) {
+         finalPath = '${directory.path}/Daily_Report_${dateString}_$counter.xlsx';
+         counter++;
+      }
+
+      final fileBytes = excel.save();
+      if (fileBytes != null) {
+        final file = File(finalPath);
+        await file.writeAsBytes(fileBytes);
+        return 'Report saved to: \n$finalPath';
+      } else {
+        return 'Failed to generate file.';
+      }
+
+    } catch (e) {
+      return 'Export Error: $e';
+    }
+  }
 }

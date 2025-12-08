@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:silsila_dawrah/services/excel_service.dart';
 import 'view_students_screen.dart';
 import 'manage_classes_screen.dart';
 import 'export_attendance_screen.dart';
@@ -105,6 +106,79 @@ class _AdminDashboardState extends State<AdminDashboard> {
             backgroundColor: Colors.red,
           ),
         );
+      }
+    }
+  }
+
+  Future<void> _exportDailyReport(BuildContext context) async {
+    final DateTime? pickedDate = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2101),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: ColorScheme.light(
+              primary: Colors.blue.shade900,
+              onPrimary: Colors.white,
+              onSurface: Colors.black,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (pickedDate != null && context.mounted) {
+      // Show loading dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: Card(
+            child: Padding(
+              padding: EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                   CircularProgressIndicator(),
+                   SizedBox(height: 16),
+                   Text('Generating Daily Report...'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+
+      try {
+        final excelService = ExcelService();
+        final result = await excelService.exportDailyConsolidatedAttendance(pickedDate);
+
+        if (context.mounted) {
+          Navigator.of(context).pop(); // Dismiss loading
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(result),
+              backgroundColor: result.contains('successfully') || result.contains('saved')
+                  ? Colors.green
+                  : Colors.orange,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      } catch (e) {
+        if (context.mounted) {
+          Navigator.of(context).pop(); // Dismiss loading
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Export failed: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       }
     }
   }
